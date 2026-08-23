@@ -64,11 +64,14 @@ video quietly becomes two hundred.
 Plain `<=` fails the entire selector when a site reports no height, which is the
 normal case for TikTok, Threads and most of X.
 
-**Native libs must stay uncompressed.** `useLegacyPackaging = true` in
-`app/build.gradle.kts` and `android.bundle.enableUncompressedNativeLibs=false`
-in `gradle.properties`. The Python runtime is unpacked from the APK at first
-launch and cannot be read from a compressed entry. Change either and you get a
+**Native libs must stay uncompressed.** `jniLibs.useLegacyPackaging = true` in
+`app/build.gradle.kts`. The Python runtime is unpacked from the APK at first
+launch and cannot be read from a compressed entry. Turn it off and you get a
 build that installs fine and dies on the first request.
+
+Do *not* add `android.bundle.enableUncompressedNativeLibs` to
+`gradle.properties` to "help". AGP removed it in 8.1 and now fails the build
+outright if it is present; its old behaviour is the default anyway.
 
 **Minification is off for release.** The library reaches into bundled Python by
 name, R8 cannot see those references, and a minified build fails at runtime
@@ -93,23 +96,54 @@ gesture; keep it that way.
 ./gradlew assembleDebug
 ```
 
-Needs JDK 17+ and an Android SDK with API 36. Output splits land in
-`app/build/outputs/apk/debug/`.
+Needs JDK 17+ and an Android SDK with API 36 installed. Output lands in
+`app/build/outputs/apk/debug/`:
 
-Not yet built or run on a device — see **Status**.
+| APK | Size |
+|---|---|
+| `app-arm64-v8a-debug.apk` | 90 MB ← install this one |
+| `app-armeabi-v7a-debug.apk` | 83 MB |
+| `app-x86_64-debug.apk` | 93 MB |
+| `app-universal-debug.apk` | 191 MB |
+
+### Do not "update" the toolchain
+
+The versions in `gradle/libs.versions.toml` are a matched set, not a snapshot of
+what was newest. Picking the latest of each independently does not build:
+
+- Compose BOM 2026.08 pins Compose 1.12, which **requires AGP 9.1+ and
+  compileSdk 37**.
+- AGP 9.x requires Gradle 9.5+, and folds Kotlin support in — it *rejects* the
+  `org.jetbrains.kotlin.android` plugin outright, which is a real migration.
+- `lifecycle` 2.11.0 also demands compileSdk 37.
+
+So the stack is pinned to the last coherent AGP 8 set: **AGP 8.13.2 / Gradle
+8.14.3 / compileSdk 36 / Compose BOM 2026.02.01 (Compose 1.10.4, Material3
+1.4.0) / lifecycle 2.10.0**. Moving any one of these forward means moving all of
+them, and doing the AGP 9 Kotlin-plugin migration at the same time.
+
+Also: `material3` no longer brings the icons in transitively, so
+`material-icons-core` is declared explicitly. The BOM pins it at 1.7.8, which is
+where Google froze that artifact.
 
 ---
 
 ## Status
 
-Written, not yet compiled. There was no Android SDK on the machine this was
-scaffolded on, so nothing here has seen a compiler.
+**Compiles.** `./gradlew assembleDebug` produces the four APKs above; the arm64
+one was checked and contains the Python runtime, ffmpeg, ffprobe and aria2c, and
+reports its package as `app.slurp`.
 
-Expect the first `./gradlew assembleDebug` to surface import and API-signature
-mistakes, most likely around Compose Material3 (which churns between releases)
-and the exact shape of the youtubedl-android callback and `UpdateChannel` API.
-The architecture and the yt-dlp flags are the parts worth trusting; the Kotlin
-needs a compiler pass.
+**Never run.** No device or emulator was involved. Nothing below the build has
+been exercised: not a single link has been probed or downloaded, the share-sheet
+path has not been triggered, MediaStore has not been written to, and the
+foreground service has not started. Treat every runtime claim in this README as
+a design intention rather than an observed fact.
+
+The most likely places for it to break first are the ones with no compile-time
+check: the `Ytdlp` callback and `UpdateChannel` shapes (they compiled, so the
+signatures are right, but the *behaviour* is untested), and the JSON field names
+in `model/Probe.kt` against what yt-dlp actually emits per site.
 
 Nothing has been verified against a real link on a real device.
 

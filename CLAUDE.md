@@ -9,12 +9,17 @@ on the repo needs on top of that.
 
 ## Status
 
-**Never compiled.** Scaffolded on a machine with no Android SDK. The first job
-for anyone picking this up is `./gradlew assembleDebug` and fixing what falls
-out — expect Compose Material3 signature drift and the exact shape of the
-youtubedl-android callback / `UpdateChannel` API to be the two sore spots.
+**Compiles, never run.** `./gradlew assembleDebug` is green and the APKs contain
+the Python runtime. No device or emulator has ever executed this code — no link
+has been probed, nothing downloaded, MediaStore never written.
 
-Do not describe any part of this as working until it has run on a device.
+Do not describe any part of this as working until it has run on a device. The
+build passing says the types line up; it says nothing about the yt-dlp
+integration, which is where the risk actually lives.
+
+Before changing versions in `gradle/libs.versions.toml`, read the "Do not
+'update' the toolchain" section of the README. They are a matched set and
+bumping one independently breaks the build.
 
 ## Shape
 

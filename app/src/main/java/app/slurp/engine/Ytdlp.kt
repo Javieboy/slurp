@@ -2,6 +2,7 @@ package app.slurp.engine
 
 import android.content.Context
 import android.util.Log
+import app.slurp.core.UrlSniffer
 import app.slurp.model.Job
 import app.slurp.model.ProbeItem
 import app.slurp.model.ProbeResult
@@ -104,6 +105,12 @@ object Ytdlp {
         req.addOption("--dump-single-json")
         req.addOption("--flat-playlist")
         req.addOption("--skip-download")
+
+        // The probe is where a playlist actually gets expanded, so this is
+        // where "just this video" has to be decided. `download()` also passes
+        // --no-playlist, but by then the jobs already exist — a link shared
+        // from inside a Mix expanded to 279 of them.
+        if (UrlSniffer.namesOneVideoInsideAPlaylist(url)) req.addOption("--no-playlist")
 
         val raw = YoutubeDL.getInstance().execute(req, processId, null).out
         val root = ProbeRoot.JSON.decodeFromString<ProbeRoot>(extractJson(raw))

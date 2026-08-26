@@ -60,15 +60,27 @@ object UrlSniffer {
     fun isProbablyUrl(text: String): Boolean = URL_RE.containsMatchIn(text)
 
     /**
-     * A pre-probe guess used only to label the button ("Download playlist").
-     * The authoritative answer comes from yt-dlp's own `_type` field; this just
-     * avoids a UI that says "Download" and then queues twelve things.
+     * True when the link names one specific video that merely *happens* to sit
+     * inside a playlist, rather than naming the playlist itself.
+     *
+     * This exists because of a real trap. Share anything from the YouTube app
+     * while watching from a playlist or an autoplay Mix and the URL carries
+     * both `v=` and `list=`. `download()` passes `--no-playlist`, but the probe
+     * runs first and did not, so the playlist was expanded into one job per
+     * entry before that flag could matter. Measured, not guessed: probing one
+     * ordinary shared link this way returned `_type: playlist` with **279**
+     * entries — 279 queued jobs, run one at a time, in a queue that does not
+     * survive the app being killed.
+     *
+     * A bare `/playlist?list=…` is the playlist itself and still expands, which
+     * is the behaviour the README describes and people actually want.
      */
-    fun looksLikePlaylist(url: String): Boolean {
+    fun namesOneVideoInsideAPlaylist(url: String): Boolean {
         val lower = url.lowercase()
-        return "list=" in lower ||
-            "/playlist" in lower ||
-            "/sets/" in lower ||
-            Regex("""/@[^/]+/(videos|shorts|streams)""").containsMatchIn(lower)
+        if ("list=" !in lower) return false
+        // The playlist page itself — expand this one.
+        if ("/playlist" in lower) return false
+        // Either the ?v= form or a youtu.be short link names a single video.
+        return Regex("""[?&]v=""").containsMatchIn(lower) || "youtu.be/" in lower
     }
 }

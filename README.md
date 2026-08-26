@@ -56,9 +56,17 @@ Looking in an empty directory is exact.
 rate-limits hard, and three parallel Instagram downloads earn a temporary block
 that looks, from inside the app, exactly like a broken extractor.
 
-**`--no-playlist` on every single download.** A YouTube link copied while
-watching a playlist carries both `v=` and `list=`. Without the flag, one queued
-video quietly becomes two hundred.
+**`--no-playlist` belongs on the probe, not just the download.** A YouTube link
+shared while watching from a playlist or an autoplay Mix carries both `v=` and
+`list=`. `download()` has always passed the flag, but that is too late: the
+probe is what expands a playlist into jobs, and it ran without it. Measured
+against a real shared link — `_type: playlist`, **279 entries**, so 279 queued
+jobs draining one at a time through a queue that does not survive the app being
+killed.
+
+`UrlSniffer.namesOneVideoInsideAPlaylist` now decides at probe time. A bare
+`/playlist?list=…` still expands, which is verified, and so is the 279 case
+collapsing to 1.
 
 **`height<=?1080`, not `height<=1080`.** The `?` makes the constraint advisory.
 Plain `<=` fails the entire selector when a site reports no height, which is the

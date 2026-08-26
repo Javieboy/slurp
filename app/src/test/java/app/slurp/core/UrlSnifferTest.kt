@@ -11,11 +11,13 @@ import org.junit.Test
  *
  * A caveat that matters more than the tests do: `CLAUDE.md` asks for this
  * parser to be checked against *real* shares from all six apps, and it has not
- * been — no device has ever run this code. The strings below are modelled on
- * the shapes the README and UrlSniffer's own comments describe. A green run
- * proves the parser is internally consistent and guards against regressions;
- * it does not prove the parser survives what TikTok actually puts on the
- * clipboard. Replace these with captured shares once a device is available.
+ * been. The app itself has run on a device, but the share sheet is one of the
+ * paths that run did not exercise, so nothing here came off a real clipboard —
+ * the strings are modelled on the shapes the README and UrlSniffer's own
+ * comments describe. A green run proves the parser is internally consistent and
+ * guards against regressions; it does not prove it survives what TikTok
+ * actually sends. Replace these with captured shares when the share sheet gets
+ * exercised.
  *
  * Pure JVM: UrlSniffer touches only kotlin.text and java.net.URI, so no
  * Robolectric and no Android stubs are involved.

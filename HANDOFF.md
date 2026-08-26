@@ -59,21 +59,55 @@ device says otherwise.
 - Library versions confirmed against Maven Central, not guessed:
   youtubedl-android 0.18.1 (`library`, `ffmpeg`, `aria2c`, `common` all exist).
 
+Confirmed on a real phone, 2026-08-26, from one screenshot of the job list:
+
+- Engine init works. The Python runtime unpacks from the APK and yt-dlp runs.
+- Probe works, on Facebook and on YouTube — the YouTube card carried a real
+  video title before it failed further down.
+- Download, `--extract-audio` and the ffmpeg post-process work.
+- `MediaStoreSink` works. Two Facebook videos reached the gallery, cards
+  reading "Saved".
+- `JobCard` renders the right control per state: Retry on the failed job,
+  Delete on the finished ones.
+
 ## Not verified — assume broken until proven otherwise
 
-**Nothing has ever run.** No device, no emulator. In particular:
+- **The share-sheet path.** Both confirmed downloads were pasted, not shared.
+  This is the app's whole intended gesture and nothing has exercised it.
+- **`DownloadService`.** No evidence either way; the downloads were short and
+  the app was in the foreground.
+- **The Update button.** `updateYoutubeDL` has never successfully run, and the
+  bundled yt-dlp is 2025.11.12 — over nine months old. The entire architecture
+  rests on this working. Test it early.
+- **Cancel and retry.** Including the CHECKING-cancel fix above.
+- **Playlists.** No multi-entry probe has ever been expanded.
+- The concurrency fixes. Races are not something a compiler or a single manual
+  run can confirm.
 
-- No link has been probed. No file downloaded.
-- `MediaStoreSink` has never written anything.
-- `DownloadService` has never started.
-- The share-sheet intent path has never fired.
-- yt-dlp's actual JSON field names have never been checked against
-  `model/Probe.kt`. **This is the most likely first failure.**
-- `Ytdlp.updateEngine` and the `UpdateChannel.STABLE` shape compiled, so the
-  signatures are right, but the behaviour is untested.
+## Two predictions this repo got wrong
 
-The build passing means the types line up. It says nothing about the yt-dlp
-integration, which is where all the risk is.
+Worth keeping, as a check on confident reasoning about untested code:
+
+- `model/Probe.kt`'s JSON field names were called "the most likely first
+  failure". They were fine on both sites tested.
+- Facebook was expected to need cookie import. It downloaded without.
+
+The one real failure so far was not in the code at all — see below.
+
+## The YouTube 403
+
+`unable to download video data: HTTP Error 403: Forbidden`, on a link whose
+probe had already succeeded. The phone was on a VPN.
+
+Diagnosed by pulling the bundled yt-dlp out of the APK — it lives at
+`res/raw/ytdlp` as a Python zipapp, not in `assets/` — reading its version
+(2025.11.12), fetching that exact release, and running it with slurp's own
+flags from a residential IP. It downloaded fine, video and audio-only both. So
+neither the bundled version nor the format selectors are at fault: YouTube
+serves the watch page to anyone and refuses format URLs from VPN exit IPs.
+
+`Ytdlp.hintFor` now turns that error into advice on the card. If a 403 shows up
+again with no VPN in play, *then* suspect the stale extractor and hit Update.
 
 ## Decisions already made — don't relitigate without a reason
 

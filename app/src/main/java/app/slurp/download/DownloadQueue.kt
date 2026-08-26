@@ -153,7 +153,13 @@ object DownloadQueue {
             // not a failure, and overwriting the card would hide the difference.
             if (stateOf(placeholder.id) == JobState.CANCELLED) return
             patch(placeholder.id) {
-                it.copy(state = JobState.FAILED, status = "", error = Ytdlp.describe(e))
+                val described = Ytdlp.describe(e)
+                it.copy(
+                    state = JobState.FAILED,
+                    status = "",
+                    error = described,
+                    hint = Ytdlp.hintFor(described),
+                )
             }
             return
         }
@@ -210,7 +216,13 @@ object DownloadQueue {
 
     private suspend fun runJob(job: Job) {
         patch(job.id) { it.copy(state = JobState.DOWNLOADING, progress = -1f, status = "Starting…") }
-        val workDir = File(appContext.cacheDir, "work/${job.id}")
+        // Not cacheDir. Android reclaims cache directories under storage
+        // pressure, and a multi-gigabyte video part-file is exactly what
+        // creates that pressure — the system would be free to delete the
+        // download mid-flight. noBackupFilesDir is normal app storage that is
+        // also excluded from cloud backup, which these temporary files should
+        // never be part of.
+        val workDir = File(appContext.noBackupFilesDir, "work/${job.id}")
 
         try {
             val file = Ytdlp.download(job, workDir) { progress, eta, line ->
@@ -231,7 +243,13 @@ object DownloadQueue {
         } catch (e: Throwable) {
             if (stateOf(job.id) != JobState.CANCELLED) {
                 patch(job.id) {
-                    it.copy(state = JobState.FAILED, status = "", error = Ytdlp.describe(e))
+                    val described = Ytdlp.describe(e)
+                it.copy(
+                    state = JobState.FAILED,
+                    status = "",
+                    error = described,
+                    hint = Ytdlp.hintFor(described),
+                )
                 }
             }
         } finally {
@@ -248,7 +266,9 @@ object DownloadQueue {
     }
 
     fun retry(id: String) {
-        patch(id) { it.copy(state = JobState.QUEUED, error = null, status = "", progress = -1f) }
+        patch(id) {
+            it.copy(state = JobState.QUEUED, error = null, hint = null, status = "", progress = -1f)
+        }
         wakeService()
         startPump()
     }

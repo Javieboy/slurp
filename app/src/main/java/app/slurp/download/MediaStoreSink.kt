@@ -27,7 +27,7 @@ object MediaStoreSink {
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, source.name)
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeOf(source))
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeOf(source, isAudio))
             put(MediaStore.MediaColumns.RELATIVE_PATH, if (isAudio) "Music/slurp" else "Movies/slurp")
             // Hides the entry from other apps until the bytes are actually
             // there. Without this the gallery briefly shows a broken thumbnail.
@@ -55,15 +55,30 @@ object MediaStoreSink {
         return source.name
     }
 
-    private fun mimeOf(file: File): String = when (file.extension.lowercase()) {
+    /**
+     * MediaStore validates the mime type against the collection and the
+     * RELATIVE_PATH it is being filed under, and rejects the insert outright if
+     * they disagree. `application/octet-stream` used to be the fallback here,
+     * which meant any extension not on this list — .ts and .flv turn up from
+     * live streams and older embeds — failed the insert after the file had
+     * already downloaded. Falling back to the container the collection expects
+     * is always accepted, and Android sniffs the real format on playback
+     * anyway.
+     */
+    private fun mimeOf(file: File, isAudio: Boolean): String = when (file.extension.lowercase()) {
         "mp4", "m4v" -> "video/mp4"
         "webm" -> "video/webm"
         "mkv" -> "video/x-matroska"
         "mov" -> "video/quicktime"
-        "m4a" -> "audio/mp4"
+        "ts", "m2ts", "mts" -> "video/mp2t"
+        "flv" -> "video/x-flv"
+        "3gp", "3gpp" -> "video/3gpp"
+        "avi" -> "video/x-msvideo"
+        "m4a", "aac" -> "audio/mp4"
         "mp3" -> "audio/mpeg"
-        "opus", "ogg" -> "audio/ogg"
+        "opus", "ogg", "oga" -> "audio/ogg"
         "wav" -> "audio/wav"
-        else -> "application/octet-stream"
+        "flac" -> "audio/flac"
+        else -> if (isAudio) "audio/mp4" else "video/mp4"
     }
 }

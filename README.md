@@ -147,18 +147,28 @@ where Google froze that artifact.
 one was checked and contains the Python runtime, ffmpeg, ffprobe and aria2c, and
 reports its package as `app.slurp`.
 
-**Never run.** No device or emulator was involved. Nothing below the build has
-been exercised: not a single link has been probed or downloaded, the share-sheet
-path has not been triggered, MediaStore has not been written to, and the
-foreground service has not started. Treat every runtime claim in this README as
-a design intention rather than an observed fact.
+**Runs, and downloads.** First run on a real phone, 2026-08-26: two Facebook
+videos queued from a paste, downloaded, extracted to m4a with the Audio quality
+selected, and landed in the gallery — the job cards read "Saved". That single
+screenshot exercised almost the whole pipeline at once: engine init and the
+Python unpack from the APK, probe, format selection, download, the ffmpeg
+post-process, and the MediaStore write.
 
-The most likely places for it to break first are the ones with no compile-time
-check: the `Ytdlp` callback and `UpdateChannel` shapes (they compiled, so the
-signatures are right, but the *behaviour* is untested), and the JSON field names
-in `model/Probe.kt` against what yt-dlp actually emits per site.
+Two predictions in this file were wrong and are worth recording. The JSON field
+names in `model/Probe.kt` were called the most likely first failure; they were
+fine. Facebook was expected to need cookies; it did not.
 
-Nothing has been verified against a real link on a real device.
+**YouTube failed, and it is a network problem rather than a code one.** The
+probe succeeded — the title came back — and the media fetch died with
+`unable to download video data: HTTP Error 403: Forbidden`. The phone was on a
+VPN. YouTube serves the watch page to anyone but refuses format URLs from exit
+IPs it dislikes, which produces exactly that split. The bundled yt-dlp
+(2025.11.12) was pulled out of the APK and run against the same flags from a
+residential IP: it downloaded fine. `Ytdlp.hintFor` now says so on the card.
+
+Still unexercised: the share-sheet path (both test links were pasted), the
+foreground service, cancel and retry, playlists, and the **Update** button —
+which is the one thing the whole architecture rests on.
 
 ---
 

@@ -22,6 +22,8 @@ data class Job(
     val status: String = "",
     val savedAs: String? = null,
     val error: String? = null,
+    /** Plain-language advice for [error], when there is any worth giving. */
+    val hint: String? = null,
     /** "3 / 12" when this job came from a playlist, null otherwise. */
     val batchLabel: String? = null,
 ) {

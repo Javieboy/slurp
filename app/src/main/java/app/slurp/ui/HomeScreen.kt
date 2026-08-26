@@ -39,7 +39,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,7 +50,6 @@ import app.slurp.engine.Ytdlp
 import app.slurp.model.Job
 import app.slurp.model.JobState
 import app.slurp.model.Quality
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,7 +60,10 @@ fun HomeScreen(
 ) {
     var input by remember { mutableStateOf("") }
     var quality by remember { mutableStateOf(prefs.quality) }
-    var updating by remember { mutableStateOf(false) }
+
+    // Update state lives on Ytdlp, not here. Held in the composition it was
+    // cancelled by a rotation, midway through replacing the yt-dlp binary.
+    val updating by Ytdlp.updating.collectAsStateWithLifecycle()
 
     val jobs by DownloadQueue.jobs.collectAsStateWithLifecycle()
     val engineReady by Ytdlp.ready.collectAsStateWithLifecycle()
@@ -70,7 +71,6 @@ fun HomeScreen(
 
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     // A link arriving from the share sheet that was not auto-started lands in
     // the field rather than vanishing.
@@ -85,6 +85,13 @@ fun HomeScreen(
         DownloadQueue.messages.collect { snackbars.showSnackbar(it) }
     }
 
+    LaunchedEffect(Unit) {
+        Ytdlp.updateResults.collect { result ->
+            prefs.lastEngineUpdate = System.currentTimeMillis()
+            snackbars.showSnackbar(result)
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbars) },
         topBar = {
@@ -96,15 +103,7 @@ fun HomeScreen(
                     }
                     TextButton(
                         enabled = !updating,
-                        onClick = {
-                            updating = true
-                            scope.launch {
-                                val result = Ytdlp.updateEngine(context)
-                                prefs.lastEngineUpdate = System.currentTimeMillis()
-                                updating = false
-                                snackbars.showSnackbar(result)
-                            }
-                        },
+                        onClick = { Ytdlp.requestUpdate(context) },
                     ) { Text(if (updating) "Updating…" else "Update") }
                 },
             )
@@ -295,18 +294,32 @@ private fun SubLine(job: Job) {
         ).joinToString("  ·  ")
     }
 
-    if (text.isBlank()) return
+    if (text.isBlank() && job.hint == null) return
 
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        fontFamily = if (job.state == JobState.DOWNLOADING) FontFamily.Monospace else null,
-        color = when (job.state) {
-            JobState.FAILED -> MaterialTheme.colorScheme.error
-            JobState.DONE -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-    )
+    if (text.isNotBlank()) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = if (job.state == JobState.DOWNLOADING) FontFamily.Monospace else null,
+            color = when (job.state) {
+                JobState.FAILED -> MaterialTheme.colorScheme.error
+                JobState.DONE -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+
+    // yt-dlp's own error line is precise but says nothing a person can act on.
+    // The hint is the "so do this" underneath it.
+    job.hint?.takeIf { job.state == JobState.FAILED }?.let { hint ->
+        Text(
+            text = hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

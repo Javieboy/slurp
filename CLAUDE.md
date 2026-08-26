@@ -9,16 +9,18 @@ on the repo needs on top of that.
 
 ## Status
 
-**Compiles, never run.** `./gradlew assembleDebug` is green, including the
-concurrency fixes described in `HANDOFF.md`, and the APKs contain the Python
-runtime.
+**Runs, and downloads.** First real-device run on 2026-08-26 took two Facebook
+videos from paste to files in the gallery, audio-extracted. Engine init, probe,
+download, ffmpeg and the MediaStore write are all confirmed working. See
+"Status" in `README.md` for what that run did and did not cover.
 
-No device or emulator has ever executed this code — no link has been probed,
-nothing downloaded, MediaStore never written.
+Still unexercised: the share sheet, the foreground service, cancel/retry,
+playlists, and the **Update** button.
 
-Do not describe any part of this as working until it has run on a device. A
-build passing says the types line up; it says nothing about the yt-dlp
-integration, which is where the risk actually lives.
+Do not describe those as working until something has run them. And note that
+the two things this repo predicted would break first — the `Probe.kt` field
+names, and Facebook needing cookies — were both wrong. Prefer reproducing a
+failure over reasoning about where it probably is.
 
 Before changing versions in `gradle/libs.versions.toml`, read the "Do not
 'update' the toolchain" section of the README. They are a matched set and

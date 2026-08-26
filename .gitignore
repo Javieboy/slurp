@@ -10,3 +10,7 @@ captures/
 *.apk
 *.keystore
 !debug.keystore
+
+# Release signing — passwords and the key itself. Never commit these.
+keystore.properties
+*.jks

@@ -1,4 +1,14 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
+
+// Release signing is read from keystore.properties at the repo root, which is
+// gitignored and must never be committed — it holds the key passwords. When it
+// is absent the release build still assembles, just unsigned, so CI and anyone
+// without the key can still verify that a release configuration compiles.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -15,8 +25,8 @@ android {
         applicationId = "app.slurp"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.0.0"
 
         // The Python runtime is per-ABI. Anything not listed here is not
         // shipped, so the app simply will not run on that architecture.
@@ -37,8 +47,22 @@ android {
         }
     }
 
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // Null when keystore.properties is absent, which leaves the APKs
+            // unsigned rather than failing the build.
+            signingConfig = signingConfigs.findByName("release")
             // Deliberately off. The library reaches into the bundled Python
             // by name and R8 has no way to see those references, so a
             // minified build dies at runtime rather than at compile time.

@@ -86,6 +86,19 @@ Do *not* add `android.bundle.enableUncompressedNativeLibs` to
 `gradle.properties` to "help". AGP removed it in 8.1 and now fails the build
 outright if it is present; its old behaviour is the default anyway.
 
+**Releases are debug-signed, on purpose.** There is no release keystore. When
+`keystore.properties` is absent — it is gitignored and normally is — the release
+build signs with this machine's debug key, so cutting a release needs no manual
+signing step.
+
+The consequence is the one nyaarank documents: Android only accepts an update
+signed with the same key as the install, so **releases have to keep coming from
+this machine.** Building on another machine means uninstall-then-reinstall for
+anyone who already has it. To move to a real key, drop a `keystore.properties`
+in the repo root with `storeFile` / `storePassword` / `keyAlias` /
+`keyPassword`; that path is already wired, and switching also costs one
+uninstall because the key changes.
+
 **Minification is off for release.** The library reaches into bundled Python by
 name, R8 cannot see those references, and a minified build fails at runtime
 rather than at compile time.

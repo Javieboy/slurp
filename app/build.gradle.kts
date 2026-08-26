@@ -60,9 +60,18 @@ android {
 
     buildTypes {
         release {
-            // Null when keystore.properties is absent, which leaves the APKs
-            // unsigned rather than failing the build.
+            // Falls back to this machine's debug key when there is no
+            // keystore.properties, which is how nyaarank ships and is the
+            // reason releases can be cut without a manual signing step.
+            //
+            // The consequence is the same one nyaarank documents: Android only
+            // accepts an update signed with the same key as the install, so
+            // releases have to keep coming from this machine. Building
+            // elsewhere means uninstall-then-reinstall. Drop a
+            // keystore.properties in the repo root to switch to a real key —
+            // that also forces one uninstall, since the key changes.
             signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
             // Deliberately off. The library reaches into the bundled Python
             // by name and R8 has no way to see those references, so a
             // minified build dies at runtime rather than at compile time.

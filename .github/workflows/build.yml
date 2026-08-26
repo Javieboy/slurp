@@ -1,0 +1,56 @@
+name: build
+
+# Manual runs are the common case: an APK is wanted, not a gate on every push.
+# The push trigger exists so that a change which stops compiling is caught at
+# the commit that caused it rather than weeks later.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The runner ships an Android SDK but not necessarily this API level, and
+      # AGP will not fetch platforms on its own. compileSdk/targetSdk are 36 —
+      # if they move in app/build.gradle.kts, move them here too.
+      - name: Install SDK packages
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Build debug APKs
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: List what was produced
+        run: ls -lh app/build/outputs/apk/debug/
+
+      # Only the arm64 split is uploaded by default. All four together are
+      # ~460 MB and a free-plan private repo gets 500 MB of artifact storage in
+      # total, so uploading the set once would fill it. arm64-v8a is the one to
+      # install on any phone from the last several years; add the others here
+      # if you actually need them.
+      - name: Upload arm64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: slurp-arm64-v8a-debug
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          retention-days: 7
+          if-no-files-found: error

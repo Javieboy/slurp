@@ -9,10 +9,9 @@ on the repo needs on top of that.
 
 ## Status
 
-**Never run, and no longer known to compile.** The first build was green and its
-APKs contained the Python runtime, but the concurrency fixes on top of it were
-written without a JDK or Android SDK to hand — see "Concurrency fixes" in
-`HANDOFF.md`. `./gradlew assembleDebug` is the first thing to run.
+**Compiles, never run.** `./gradlew assembleDebug` is green, including the
+concurrency fixes described in `HANDOFF.md`, and the APKs contain the Python
+runtime.
 
 No device or emulator has ever executed this code — no link has been probed,
 nothing downloaded, MediaStore never written.

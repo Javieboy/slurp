@@ -57,7 +57,12 @@ android {
     }
 
     packaging {
-        // Required: see the note in gradle.properties.
+        // Required. This sets android:extractNativeLibs=true, which makes the
+        // installer write the .so files out to the filesystem — the bundled
+        // Python runtime needs real files and cannot be read from inside the
+        // APK. It does NOT mean "store the libraries uncompressed"; they are
+        // DEFLATE-compressed in the APK either way, and false is the setting
+        // that stops them being extracted at all. See the README.
         jniLibs.useLegacyPackaging = true
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/*.kotlin_module")
     }

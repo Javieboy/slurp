@@ -18,7 +18,7 @@ git checkout -b main && git push -u origin main
 # then set main as default in GitHub repo settings, and delete the long branch
 ```
 
-## Concurrency fixes on top of that build — NOT COMPILED
+## Concurrency fixes on top of that build
 
 Three bugs found by reading the code after the first build. All three are in the
 path a first run takes, and all three would present as something else, which is
@@ -45,10 +45,10 @@ why they were worth fixing before the device test rather than after.
   the service stops *itself* when the queue empties instead of being stopped by
   the pump's `finally` (which raced the next submit starting it again).
 
-**None of this has been compiled**, let alone run — it was written on a machine
-with no JDK and no Android SDK. `./gradlew assembleDebug` is the first thing to
-try, and the likeliest breakage is the three-argument
-`YoutubeDL.execute(request, processId, null)` in `Ytdlp.probe`.
+These compile — `./gradlew assembleDebug` is green with them in, on Windows with
+JDK 17 and SDK platform 36. Still never run: the races they close are exactly
+the kind of thing a compiler cannot check, so treat them as untested until a
+device says otherwise.
 
 ## Verified by execution
 

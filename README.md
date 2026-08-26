@@ -64,10 +64,23 @@ video quietly becomes two hundred.
 Plain `<=` fails the entire selector when a site reports no height, which is the
 normal case for TikTok, Threads and most of X.
 
-**Native libs must stay uncompressed.** `jniLibs.useLegacyPackaging = true` in
-`app/build.gradle.kts`. The Python runtime is unpacked from the APK at first
-launch and cannot be read from a compressed entry. Turn it off and you get a
-build that installs fine and dies on the first request.
+**Native libs must be extracted to disk at install time.**
+`jniLibs.useLegacyPackaging = true` in `app/build.gradle.kts`. The Python
+runtime has to exist as real files on the filesystem — it cannot be read out of
+the APK — and legacy packaging is what puts it there, by setting
+`android:extractNativeLibs=true` in the merged manifest. Turn it off and you get
+a build that installs fine and dies on the first request.
+
+Note that this means the `.so` entries inside the APK *are* DEFLATE-compressed;
+`unzip -v` shows `Defl:N` for `libpython.so` and friends, and that is correct.
+Uncompressed-in-the-APK is the opposite setting (`useLegacyPackaging = false`),
+which loads libraries directly from the APK without ever writing them to disk
+and is exactly the configuration that breaks the runtime. Check the flag, not
+the compression:
+
+```
+aapt2 dump xmltree --file AndroidManifest.xml <apk> | grep extractNativeLibs
+```
 
 Do *not* add `android.bundle.enableUncompressedNativeLibs` to
 `gradle.properties` to "help". AGP removed it in 8.1 and now fails the build

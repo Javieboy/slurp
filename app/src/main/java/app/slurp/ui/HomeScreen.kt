@@ -13,11 +13,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -50,6 +53,7 @@ import app.slurp.engine.Ytdlp
 import app.slurp.model.Job
 import app.slurp.model.JobState
 import app.slurp.model.Quality
+import app.slurp.update.AppUpdater
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,10 +64,16 @@ fun HomeScreen(
 ) {
     var input by remember { mutableStateOf("") }
     var quality by remember { mutableStateOf(prefs.quality) }
+    var menuOpen by remember { mutableStateOf(false) }
 
     // Update state lives on Ytdlp, not here. Held in the composition it was
     // cancelled by a rotation, midway through replacing the yt-dlp binary.
     val updating by Ytdlp.updating.collectAsStateWithLifecycle()
+
+    // The app updater, which is a different thing entirely: it ships new APK
+    // code, where the engine update swaps yt-dlp inside the existing install.
+    val appBusy by AppUpdater.busy.collectAsStateWithLifecycle()
+    val updateReady by AppUpdater.available.collectAsStateWithLifecycle()
 
     val jobs by DownloadQueue.jobs.collectAsStateWithLifecycle()
     val engineReady by Ytdlp.ready.collectAsStateWithLifecycle()
@@ -92,6 +102,10 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        AppUpdater.messages.collect { snackbars.showSnackbar(it) }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbars) },
         topBar = {
@@ -101,10 +115,44 @@ fun HomeScreen(
                     if (jobs.any { it.state.isTerminal }) {
                         TextButton(onClick = { DownloadQueue.clearFinished() }) { Text("Clear") }
                     }
-                    TextButton(
-                        enabled = !updating,
-                        onClick = { Ytdlp.requestUpdate(context) },
-                    ) { Text(if (updating) "Updating…" else "Update") }
+                    // An update ready to install outranks everything else here.
+                    updateReady?.let { ready ->
+                        TextButton(
+                            enabled = !appBusy,
+                            onClick = { AppUpdater.downloadAndInstall(context, ready) },
+                        ) { Text(if (appBusy) "Downloading…" else "Install ${ready.version}") }
+                    }
+
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = menuOpen,
+                            onDismissRequest = { menuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(if (appBusy) "Checking…" else "Update app") },
+                                enabled = !appBusy,
+                                onClick = {
+                                    menuOpen = false
+                                    AppUpdater.check(context)
+                                },
+                            )
+                            // Kept, and deliberately separate. This one replaces
+                            // the bundled yt-dlp without touching the APK, which
+                            // is how a site that broke overnight gets fixed
+                            // without waiting for a release.
+                            DropdownMenuItem(
+                                text = { Text(if (updating) "Updating engine…" else "Update engine") },
+                                enabled = !updating,
+                                onClick = {
+                                    menuOpen = false
+                                    Ytdlp.requestUpdate(context)
+                                },
+                            )
+                        }
+                    }
                 },
             )
         },

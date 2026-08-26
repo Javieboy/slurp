@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Where AppUpdater has DownloadManager put the APK. The installer runs in
+         another process, so it needs a content:// URI granted per-launch rather
+         than a file path it has no permission to read. -->
+    <external-files-path name="updates" path="Download/" />
+</paths>

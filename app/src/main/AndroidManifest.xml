@@ -7,6 +7,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- Update app: hands a downloaded APK to the system installer. The user
+         still has to allow "install unknown apps" for slurp, and still confirms
+         the install itself — this only makes slurp eligible to ask. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".SlurpApp"
         android:allowBackup="false"
@@ -44,6 +49,18 @@
             android:name=".download.DownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Grants the system installer read access to the downloaded APK, for
+             the duration of the install intent only. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 </manifest>

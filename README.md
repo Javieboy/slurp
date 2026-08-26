@@ -22,7 +22,7 @@ That choice is the whole architecture, and it was made for one reason:
 fix within days. The alternatives both fail here — hand-written extractors mean
 six things breaking on six independent schedules, and a self-hosted backend
 means paying for a box and pushing every byte through it twice. Bundling yt-dlp
-means the **Update** button in the top bar fetches a newer extractor at runtime
+means **Update engine** in the overflow menu fetches a newer extractor at runtime
 and fixes a broken site without shipping a new APK. Reach for it first when
 something stops working.
 
@@ -107,6 +107,31 @@ in the repo root with `storeFile` / `storePassword` / `keyAlias` /
 `keyPassword`; that path is already wired, and switching also costs one
 uninstall because the key changes.
 
+**Two different things are called "update", and confusing them wastes time.**
+
+| Menu item | What it replaces | Fixes |
+|---|---|---|
+| **Update engine** | the bundled yt-dlp, inside the existing install | a site that stopped working |
+| **Update app** | the APK itself | anything in slurp's own code |
+
+Engine update is the one to reach for when a site breaks — it lands in seconds
+and needs no release. App update ships new code and costs an 80 MB download.
+Neither can do the other's job, which is why both exist.
+
+**The update check reads `releases.atom`, not the API.** Unauthenticated
+`api.github.com` allows 60 requests an hour **per IP**, and an ISP that NATs its
+customers shares one address between thousands of them, so a check can return
+403 on a phone that has never called GitHub itself. nyaarank measured this
+directly — `/rate_limit` reporting 0 of 60 remaining for an address that had
+made no requests of its own — and the fix is ported from there. The atom feed is
+served by the web host under no such quota.
+
+The per-ABI splits mean the asset name depends on the device, so the derived URL
+is HEAD-checked before use and falls back to `app-universal-release.apk`. **Do
+not rename the release assets** without changing `AppUpdater.resolveApkUrl`; a
+rename degrades to the universal APK rather than handing the installer a 404
+page, but only because of that guard.
+
 **Minification is off for release.** The library reaches into bundled Python by
 name, R8 cannot see those references, and a minified build fails at runtime
 rather than at compile time.
@@ -188,7 +213,7 @@ IPs it dislikes, which produces exactly that split. The bundled yt-dlp
 residential IP: it downloaded fine. `Ytdlp.hintFor` now says so on the card.
 
 Still unexercised: the share-sheet path (both test links were pasted), the
-foreground service, cancel and retry, playlists, and the **Update** button —
+foreground service, cancel and retry, playlists, and both **Update** actions —
 which is the one thing the whole architecture rests on.
 
 ---

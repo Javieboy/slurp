@@ -15,7 +15,7 @@ download, ffmpeg and the MediaStore write are all confirmed working. See
 "Status" in `README.md` for what that run did and did not cover.
 
 Still unexercised: the share sheet, the foreground service, cancel/retry,
-playlists, and the **Update** button.
+playlists, and both **Update** actions.
 
 Do not describe those as working until something has run them. And note that
 the two things this repo predicted would break first — the `Probe.kt` field
@@ -39,7 +39,7 @@ bundled Python runtime, and every addition is on top of that.
 
 ## When a site stops working
 
-Try the **Update** button before touching any code. It fetches a newer yt-dlp at
+Try **Update engine** before touching any code. It fetches a newer yt-dlp at
 runtime, and site breakage is almost always an extractor problem that upstream
 has already fixed. Reaching for the debugger first wastes an afternoon.
 

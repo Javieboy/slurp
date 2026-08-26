@@ -3,6 +3,7 @@ package app.slurp.download
 import android.content.ContentValues
 import android.content.Context
 import android.provider.MediaStore
+import app.slurp.data.Prefs
 import java.io.File
 
 /**
@@ -17,7 +18,10 @@ import java.io.File
  */
 object MediaStoreSink {
 
-    fun publish(context: Context, source: File, isAudio: Boolean): String {
+    /** Where a finished file ended up, and how to open it again. */
+    data class Saved(val name: String, val uri: String, val location: String)
+
+    fun publish(context: Context, source: File, isAudio: Boolean, prefs: Prefs): Saved {
         val resolver = context.contentResolver
         val collection = if (isAudio) {
             MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -25,10 +29,15 @@ object MediaStoreSink {
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
 
+        // Audio always goes to Music — that is where players and the system
+        // media scanner look for it. Only video's collection is configurable.
+        val root = if (isAudio) "Music" else prefs.videoRoot.directory
+        val relative = "$root/${prefs.folderName}"
+
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, source.name)
             put(MediaStore.MediaColumns.MIME_TYPE, mimeOf(source, isAudio))
-            put(MediaStore.MediaColumns.RELATIVE_PATH, if (isAudio) "Music/slurp" else "Movies/slurp")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relative)
             // Hides the entry from other apps until the bytes are actually
             // there. Without this the gallery briefly shows a broken thumbnail.
             put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -52,7 +61,7 @@ object MediaStoreSink {
         }
 
         source.delete()
-        return source.name
+        return Saved(name = source.name, uri = uri.toString(), location = relative)
     }
 
     /**

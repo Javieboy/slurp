@@ -26,14 +26,65 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_ONE_TAP, true)
         set(value) = sp.edit().putBoolean(KEY_ONE_TAP, value).apply()
 
-    /** Last time the bundled yt-dlp was updated, epoch millis. */
+    /**
+     * Last time the bundled yt-dlp was updated, epoch millis.
+     *
+     * Read by the queue's automatic recovery as a cooldown, so a run of failing
+     * jobs cannot trigger an engine update each.
+     */
     var lastEngineUpdate: Long
         get() = sp.getLong(KEY_LAST_UPDATE, 0L)
         set(value) = sp.edit().putLong(KEY_LAST_UPDATE, value).apply()
 
-    private companion object {
-        const val KEY_QUALITY = "quality"
-        const val KEY_ONE_TAP = "one_tap"
-        const val KEY_LAST_UPDATE = "last_engine_update"
+    /**
+     * Folder name under the media collection — `Movies/<this>` for video,
+     * `Music/<this>` for audio.
+     *
+     * Scoped storage is why this is a folder *name* and not a path. MediaStore
+     * only accepts a RELATIVE_PATH under a standard collection, so an arbitrary
+     * directory would mean going through SAF and giving up the automatic
+     * gallery listing. Blank falls back to the default rather than writing to
+     * the collection root.
+     */
+    var folderName: String
+        get() = sp.getString(KEY_FOLDER, null)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_FOLDER
+        set(value) {
+            val cleaned = sanitiseFolder(value)
+            sp.edit().putString(KEY_FOLDER, cleaned).apply()
+        }
+
+    /** Where video lands. Audio always goes to `Music`, which is where players look. */
+    var videoRoot: VideoRoot
+        get() = runCatching { VideoRoot.valueOf(sp.getString(KEY_VIDEO_ROOT, null) ?: "") }
+            .getOrDefault(VideoRoot.MOVIES)
+        set(value) = sp.edit().putString(KEY_VIDEO_ROOT, value.name).apply()
+
+    companion object {
+        const val DEFAULT_FOLDER = "slurp"
+
+        /**
+         * MediaStore rejects a RELATIVE_PATH containing path separators it did
+         * not expect, and silently mangles some punctuation, so the name is
+         * reduced to something that always survives the insert.
+         */
+        fun sanitiseFolder(raw: String): String =
+            raw.trim()
+                .replace(Regex("""[\\/:*?"<>|]"""), "")
+                .trim()
+                .take(40)
+                .ifEmpty { DEFAULT_FOLDER }
+
+        private const val KEY_QUALITY = "quality"
+        private const val KEY_ONE_TAP = "one_tap"
+        private const val KEY_LAST_UPDATE = "last_engine_update"
+        private const val KEY_FOLDER = "folder_name"
+        private const val KEY_VIDEO_ROOT = "video_root"
     }
+}
+
+/** The standard collections MediaStore will file a video under. */
+enum class VideoRoot(val label: String, val directory: String) {
+    MOVIES("Movies", "Movies"),
+    DCIM("DCIM", "DCIM"),
+    DOWNLOAD("Download", "Download"),
 }

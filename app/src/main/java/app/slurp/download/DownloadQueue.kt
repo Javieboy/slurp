@@ -3,6 +3,7 @@ package app.slurp.download
 import android.content.Context
 import app.slurp.core.Site
 import app.slurp.core.UrlSniffer
+import app.slurp.data.Prefs
 import app.slurp.engine.Ytdlp
 import app.slurp.model.Job
 import app.slurp.model.JobState
@@ -50,6 +51,16 @@ object DownloadQueue {
     private var pump: CoroutineJob? = null
 
     private lateinit var appContext: Context
+
+    /**
+     * One automatic engine update per window, however many jobs fail inside it.
+     * Six hours is well under the rate at which yt-dlp actually ships fixes, so
+     * a genuine breakage is still picked up the same day.
+     */
+    private const val ENGINE_UPDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000L
+
+    private val prefsRef by lazy { Prefs(appContext) }
+    private fun prefs(): Prefs = prefsRef
 
     fun attach(context: Context) {
         appContext = context.applicationContext
@@ -236,25 +247,88 @@ object DownloadQueue {
             }
 
             patch(job.id) { it.copy(state = JobState.SAVING, progress = 1f, status = "Saving…") }
-            val savedName = MediaStoreSink.publish(appContext, file, job.quality.isAudio)
-            patch(job.id) { it.copy(state = JobState.DONE, savedAs = savedName, status = "") }
+            val saved = MediaStoreSink.publish(appContext, file, job.quality.isAudio, prefs())
+            patch(job.id) {
+                it.copy(
+                    state = JobState.DONE,
+                    savedAs = saved.name,
+                    savedUri = saved.uri,
+                    savedIn = saved.location,
+                    status = "",
+                )
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
             if (stateOf(job.id) != JobState.CANCELLED) {
-                patch(job.id) {
-                    val described = Ytdlp.describe(e)
-                it.copy(
-                    state = JobState.FAILED,
-                    status = "",
-                    error = described,
-                    hint = Ytdlp.hintFor(described),
-                )
+                val described = Ytdlp.describe(e)
+                if (!recoverByUpdatingEngine(job, described)) {
+                    patch(job.id) {
+                        it.copy(
+                            state = JobState.FAILED,
+                            status = "",
+                            error = described,
+                            hint = Ytdlp.hintFor(described),
+                        )
+                    }
                 }
             }
         } finally {
             workDir.deleteRecursively()
         }
+    }
+
+    /**
+     * Tries to rescue a failed download by pulling a newer yt-dlp, then puts the
+     * job back on the queue.
+     *
+     * Site breakage is the ordinary reason a download dies, and upstream
+     * usually ships a fix within days — so "download failed" is very often
+     * really "your extractor is old". Reporting that and leaving the user to go
+     * find the menu item is a worse answer than simply doing it.
+     *
+     * Three guards stop it becoming a nuisance: only failures that look like an
+     * extractor problem qualify, each job gets exactly one attempt
+     * ([Job.engineRetried]), and an update only runs if one has not run
+     * recently — so twenty failing jobs cost one update, not twenty.
+     *
+     * @return true when the job has been requeued and must not be marked failed.
+     */
+    private suspend fun recoverByUpdatingEngine(job: Job, error: String): Boolean {
+        if (job.engineRetried) return false
+        if (!Ytdlp.looksLikeStaleExtractor(error)) return false
+
+        val prefs = prefs()
+        val sinceLast = System.currentTimeMillis() - prefs.lastEngineUpdate
+        if (prefs.lastEngineUpdate != 0L && sinceLast < ENGINE_UPDATE_COOLDOWN_MS) return false
+
+        patch(job.id) {
+            it.copy(status = "Might be a stale extractor — updating engine…", progress = -1f)
+        }
+
+        val result = runCatching { Ytdlp.updateNow(appContext) }
+            .getOrElse { e -> "Update failed: ${Ytdlp.describe(e)}" }
+        prefs.lastEngineUpdate = System.currentTimeMillis()
+
+        // A failed update leaves the same engine in place, so a retry would die
+        // identically. Let the original error stand.
+        if (result.startsWith("Update failed")) {
+            emit(result)
+            return false
+        }
+
+        emit("$result — retrying")
+        patch(job.id) {
+            it.copy(
+                state = JobState.QUEUED,
+                engineRetried = true,
+                status = "Retrying after engine update",
+                error = null,
+                hint = null,
+                progress = -1f,
+            )
+        }
+        return true
     }
 
     fun cancel(id: String) {

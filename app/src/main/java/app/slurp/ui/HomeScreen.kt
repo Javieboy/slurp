@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -39,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +56,7 @@ import app.slurp.model.Job
 import app.slurp.model.JobState
 import app.slurp.model.Quality
 import app.slurp.update.AppUpdater
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +68,7 @@ fun HomeScreen(
     var input by remember { mutableStateOf("") }
     var quality by remember { mutableStateOf(prefs.quality) }
     var menuOpen by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(false) }
 
     // Update state lives on Ytdlp, not here. Held in the composition it was
     // cancelled by a rotation, midway through replacing the yt-dlp binary.
@@ -81,6 +85,7 @@ fun HomeScreen(
 
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
 
     // A link arriving from the share sheet that was not auto-started lands in
     // the field rather than vanishing.
@@ -149,6 +154,13 @@ fun HomeScreen(
                                 onClick = {
                                     menuOpen = false
                                     Ytdlp.requestUpdate(context)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                onClick = {
+                                    menuOpen = false
+                                    settingsOpen = true
                                 },
                             )
                         }
@@ -221,10 +233,33 @@ fun HomeScreen(
                 EmptyState()
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(jobs, key = { it.id }) { job -> JobCard(job) }
+                    items(jobs, key = { it.id }) { job ->
+                        JobCard(
+                            job = job,
+                            onPlay = {
+                                val mime = OpenFile.mimeFor(job.savedAs, job.quality.isAudio)
+                                if (!OpenFile.play(context, job.savedUri!!, mime)) {
+                                    snackbarScope.launch {
+                                        snackbars.showSnackbar("No app on this phone can open that file")
+                                    }
+                                }
+                            },
+                            onOpenFolder = {
+                                if (!OpenFile.openFolder(context, job.savedIn.orEmpty())) {
+                                    snackbarScope.launch {
+                                        snackbars.showSnackbar("Saved in ${job.savedIn.orEmpty()}")
+                                    }
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
+    }
+
+    if (settingsOpen) {
+        SettingsDialog(prefs = prefs, onDismiss = { settingsOpen = false })
     }
 }
 
@@ -263,7 +298,11 @@ private fun EngineErrorBanner(message: String) {
 }
 
 @Composable
-private fun JobCard(job: Job) {
+private fun JobCard(
+    job: Job,
+    onPlay: () -> Unit,
+    onOpenFolder: () -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
 
@@ -324,6 +363,25 @@ private fun JobCard(job: Job) {
             }
 
             SubLine(job)
+
+            // Only once there is a file to act on. savedUri is set by
+            // MediaStoreSink at the moment the write completes.
+            if (job.state == JobState.DONE && job.savedUri != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onPlay) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text("  Play")
+                    }
+                    // No icon: material-icons-core has no folder glyph, and the
+                    // extended artifact is a dependency this project does not
+                    // want for one picture.
+                    TextButton(onClick = onOpenFolder) { Text("Folder") }
+                }
+            }
         }
     }
 }

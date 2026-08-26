@@ -194,17 +194,57 @@ object Ytdlp {
      * in the app: extractors break when sites change, and this fixes them
      * without shipping a new APK.
      */
+    private val updateLock = Mutex()
+
+    /** Fire-and-forget, for the menu item. Result arrives on [updateResults]. */
     fun requestUpdate(context: Context) {
         if (_updating.value) return
         val app = context.applicationContext
-        engineScope.launch {
+        engineScope.launch { _updateResults.emit(updateNow(app)) }
+    }
+
+    /**
+     * Awaitable form, used by the queue when a download fails in a way that
+     * looks like a stale extractor.
+     *
+     * The lock is what stops a run of failing jobs each firing an update: the
+     * first takes it and the rest wait, then find the engine already current.
+     */
+    suspend fun updateNow(context: Context): String {
+        val app = context.applicationContext
+        return updateLock.withLock {
             _updating.value = true
             try {
-                _updateResults.emit(updateEngine(app))
+                updateEngine(app)
             } finally {
                 _updating.value = false
             }
         }
+    }
+
+    /**
+     * Whether a failure looks like something a newer extractor would fix.
+     *
+     * Deliberately excludes the cases that an update provably cannot help:
+     * anything needing a login, and storage or cancellation failures. 403 is
+     * included even though it is often a VPN — see [hintFor] — because it is
+     * also the classic symptom of a stale extractor, and the cooldown in the
+     * queue keeps the cost of guessing wrong to one update per window.
+     */
+    fun looksLikeStaleExtractor(error: String): Boolean {
+        val lower = error.lowercase()
+        if ("sign in" in lower || "login required" in lower || "private" in lower) return false
+        if ("no space" in lower || "mediastore" in lower) return false
+        return "403" in lower ||
+            "forbidden" in lower ||
+            "unable to extract" in lower ||
+            "unable to download" in lower ||
+            "unsupported url" in lower ||
+            "no video formats" in lower ||
+            "requested format" in lower ||
+            "nsig" in lower ||
+            "signature" in lower ||
+            "player" in lower
     }
 
     private suspend fun updateEngine(context: Context): String = withContext(Dispatchers.IO) {

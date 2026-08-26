@@ -74,15 +74,19 @@ object Ytdlp {
      * `--flat-playlist` is what keeps this fast: for a 200-video playlist it
      * lists the entries from the playlist page alone instead of resolving each
      * video, which would take minutes and hammer the site.
+     *
+     * [processId] registers the forked Python process so that cancelling a job
+     * while it is still "Checking" can actually kill it. Without one, a probe of
+     * a slow or wedged site runs to completion no matter what the UI says.
      */
-    suspend fun probe(url: String): ProbeResult = withContext(Dispatchers.IO) {
+    suspend fun probe(url: String, processId: String): ProbeResult = withContext(Dispatchers.IO) {
         val req = YoutubeDLRequest(url)
         FormatPolicy.applyCommon(req)
         req.addOption("--dump-single-json")
         req.addOption("--flat-playlist")
         req.addOption("--skip-download")
 
-        val raw = YoutubeDL.getInstance().execute(req).out
+        val raw = YoutubeDL.getInstance().execute(req, processId, null).out
         val root = ProbeRoot.JSON.decodeFromString<ProbeRoot>(extractJson(raw))
         toResult(url, root)
     }

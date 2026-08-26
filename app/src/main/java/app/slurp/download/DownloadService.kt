@@ -52,7 +52,19 @@ class DownloadService : Service() {
         scope.launch {
             DownloadQueue.jobs.collectLatest { jobs ->
                 val active = jobs.filterNot { it.state.isTerminal }
-                if (active.isEmpty()) return@collectLatest
+
+                // The service retires itself rather than being stopped by the
+                // queue. The queue used to do it from the pump's `finally`,
+                // which raced the next submit starting it again; here there is
+                // one writer and the state it reacts to is the queue itself.
+                if (active.isEmpty()) {
+                    ServiceCompat.stopForeground(
+                        this@DownloadService,
+                        ServiceCompat.STOP_FOREGROUND_REMOVE,
+                    )
+                    stopSelf()
+                    return@collectLatest
+                }
 
                 val current = active.firstOrNull { it.state == JobState.DOWNLOADING } ?: active.first()
                 val remaining = active.size
@@ -104,12 +116,16 @@ class DownloadService : Service() {
         private const val CHANNEL_ID = "downloads"
         private const val NOTIFICATION_ID = 1001
 
+        /**
+         * Call this from the foreground — see `DownloadQueue.wakeService`. It
+         * throws ForegroundServiceStartNotAllowedException on Android 12+ if the
+         * app is in the background, so the caller is responsible for catching.
+         *
+         * There is no matching stop(): the service retires itself when the queue
+         * empties.
+         */
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, DownloadService::class.java))
-        }
-
-        fun stop(context: Context) {
-            context.stopService(Intent(context, DownloadService::class.java))
         }
 
         private fun ensureChannel(context: Context) {

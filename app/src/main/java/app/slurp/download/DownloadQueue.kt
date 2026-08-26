@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Job as CoroutineJob
@@ -39,7 +41,14 @@ object DownloadQueue {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val messages = _messages.asSharedFlow()
 
+    /**
+     * Guards every read and write of [pump]. All access happens inside the lock,
+     * so the mutex is also what publishes the field between threads — there is
+     * deliberately no separate @Volatile.
+     */
+    private val pumpLock = Mutex()
     private var pump: CoroutineJob? = null
+
     private lateinit var appContext: Context
 
     fun attach(context: Context) {
@@ -49,6 +58,9 @@ object DownloadQueue {
     /**
      * Accepts anything: a bare URL, a share-sheet caption with a link buried in
      * it, or several links at once.
+     *
+     * Called from the main thread, from the activity that received the share or
+     * the paste — which matters for the foreground service, see [wakeService].
      */
     fun submit(text: String, quality: Quality) {
         val urls = UrlSniffer.allUrls(text)
@@ -56,27 +68,52 @@ object DownloadQueue {
             emit("No link in that text")
             return
         }
-        urls.forEach { url -> scope.launch { admit(url, quality) } }
+
+        // Placeholders go in before the service starts, rather than from inside
+        // each probe coroutine. The service stops itself the moment it observes
+        // an empty queue, so it must never be started against one.
+        val pending = urls.map { url ->
+            Job(
+                id = UUID.randomUUID().toString(),
+                url = url,
+                title = url,
+                site = Site.of(url),
+                quality = quality,
+                state = JobState.CHECKING,
+                status = "Checking link…",
+            )
+        }
+        _jobs.update { it + pending }
+
+        wakeService()
+        pending.forEach { placeholder -> scope.launch { admit(placeholder) } }
     }
 
-    /** Probe one URL, then turn it into one job or a playlist's worth of them. */
-    private suspend fun admit(url: String, quality: Quality) {
-        val placeholder = Job(
-            id = UUID.randomUUID().toString(),
-            url = url,
-            title = url,
-            site = Site.of(url),
-            quality = quality,
-            state = JobState.CHECKING,
-            status = "Checking link…",
-        )
-        _jobs.update { it + placeholder }
+    /**
+     * Starts the foreground service on the caller's thread, while the activity
+     * that triggered the submit is still visible.
+     *
+     * This used to happen inside the pump, after the probe — seconds of network
+     * latency later, by which point the user has usually gone back to whichever
+     * app they shared from. Starting a foreground service from the background
+     * throws ForegroundServiceStartNotAllowedException on Android 12+, and it
+     * was being thrown inside a coroutine with no handler, which takes the whole
+     * app down rather than failing the one download.
+     *
+     * The runCatching is belt and braces: if a start is refused anyway, the
+     * downloads still run, they just lose their protection from being killed.
+     */
+    private fun wakeService() {
+        runCatching { DownloadService.start(appContext) }
+    }
 
+    /** Probe one URL, then turn its placeholder into one job or a playlist's worth. */
+    private suspend fun admit(placeholder: Job) {
         try {
             Ytdlp.ensureInit(appContext)
             Ytdlp.initError.value?.let { error(it) }
 
-            val result = Ytdlp.probe(url)
+            val result = Ytdlp.probe(placeholder.url, placeholder.processId)
             val total = result.items.size
             val expanded = result.items.mapIndexed { index, item ->
                 Job(
@@ -84,38 +121,90 @@ object DownloadQueue {
                     url = item.url,
                     title = item.title,
                     site = Site.of(item.url),
-                    quality = quality,
+                    quality = placeholder.quality,
                     state = JobState.QUEUED,
                     batchLabel = if (result.isPlaylist) "${index + 1} / $total" else null,
                 )
             }
+
+            // Swapping the placeholder out and checking it is still wanted have
+            // to be one operation. A probe takes seconds, and cancelling during
+            // "Checking" used to lose the race: the card went CANCELLED, then
+            // the probe landed and replaced it with queued jobs, and the
+            // download the user had just dismissed started anyway.
+            var admitted = false
             _jobs.update { current ->
-                current.flatMap { if (it.id == placeholder.id) expanded else listOf(it) }
+                val existing = current.firstOrNull { it.id == placeholder.id }
+                if (existing == null || existing.state == JobState.CANCELLED) {
+                    admitted = false
+                    current
+                } else {
+                    admitted = true
+                    current.flatMap { if (it.id == placeholder.id) expanded else listOf(it) }
+                }
             }
+            if (!admitted) return
+
             if (result.isPlaylist) emit("Queued $total from “${result.title}”")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
+            // Killing the probe process makes it throw. That is a cancellation,
+            // not a failure, and overwriting the card would hide the difference.
+            if (stateOf(placeholder.id) == JobState.CANCELLED) return
             patch(placeholder.id) {
                 it.copy(state = JobState.FAILED, status = "", error = Ytdlp.describe(e))
             }
+            return
         }
 
         startPump()
     }
 
+    /**
+     * Starts the single download pump, if one is not already running.
+     *
+     * The lock is what makes "one at a time" actually true. Without it this is a
+     * check-then-act on a field touched from several Dispatchers.Default
+     * threads: two probes finishing in the same instant — the normal case for a
+     * multi-link paste — both see no pump, both start one, and two parallel
+     * downloads from the same site earn exactly the rate-limit block that the
+     * serialisation exists to avoid.
+     */
     private fun startPump() {
-        if (pump?.isActive == true) return
-        pump = scope.launch {
-            DownloadService.start(appContext)
-            try {
-                while (true) {
-                    val next = _jobs.value.firstOrNull { it.state == JobState.QUEUED } ?: break
-                    runJob(next)
-                }
-            } finally {
-                DownloadService.stop(appContext)
+        scope.launch {
+            pumpLock.withLock {
+                if (pump?.isActive == true) return@withLock
+                pump = scope.launch { drain() }
             }
+        }
+    }
+
+    /**
+     * Runs queued jobs until there are none left.
+     *
+     * Retiring happens under [pumpLock] and only after a final re-check of the
+     * queue, which closes the opposite race to the one above: a job admitted
+     * between the loop finding nothing and this coroutine actually completing
+     * would otherwise find `pump.isActive == true`, decline to start a pump of
+     * its own, and then sit at "Queued" forever with nothing left to drain it.
+     */
+    private suspend fun drain() {
+        while (true) {
+            val next = _jobs.value.firstOrNull { it.state == JobState.QUEUED }
+            if (next != null) {
+                runJob(next)
+                continue
+            }
+            val retired = pumpLock.withLock {
+                if (_jobs.value.any { it.state == JobState.QUEUED }) {
+                    false
+                } else {
+                    pump = null
+                    true
+                }
+            }
+            if (retired) return
         }
     }
 
@@ -140,8 +229,7 @@ object DownloadQueue {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            val wasCancelled = _jobs.value.firstOrNull { it.id == job.id }?.state == JobState.CANCELLED
-            if (!wasCancelled) {
+            if (stateOf(job.id) != JobState.CANCELLED) {
                 patch(job.id) {
                     it.copy(state = JobState.FAILED, status = "", error = Ytdlp.describe(e))
                 }
@@ -154,11 +242,14 @@ object DownloadQueue {
     fun cancel(id: String) {
         val job = _jobs.value.firstOrNull { it.id == id } ?: return
         patch(id) { it.copy(state = JobState.CANCELLED, status = "Cancelled", progress = -1f) }
-        if (job.state == JobState.DOWNLOADING) Ytdlp.cancel(job)
+        // CHECKING kills the probe, DOWNLOADING kills the download. Both are a
+        // forked Python process registered under the same process id.
+        if (job.state == JobState.CHECKING || job.state == JobState.DOWNLOADING) Ytdlp.cancel(job)
     }
 
     fun retry(id: String) {
         patch(id) { it.copy(state = JobState.QUEUED, error = null, status = "", progress = -1f) }
+        wakeService()
         startPump()
     }
 
@@ -171,8 +262,8 @@ object DownloadQueue {
         _jobs.update { list -> list.filterNot { it.state.isTerminal } }
     }
 
-    /** Jobs still doing something, used for the foreground notification. */
-    fun activeCount(): Int = _jobs.value.count { !it.state.isTerminal }
+    private fun stateOf(id: String): JobState? =
+        _jobs.value.firstOrNull { it.id == id }?.state
 
     private fun patch(id: String, transform: (Job) -> Job) {
         _jobs.update { list -> list.map { if (it.id == id) transform(it) else it } }

@@ -226,6 +226,21 @@ and cannot download from subscription streaming services.
 
 ---
 
+## License
+
+GPLv3 — see `LICENSE`.
+
+Not a free choice. `youtubedl-android` declares GPL-3.0 in its published POM,
+and slurp links it and ships its ffmpeg build inside the APK, so everything
+downstream is GPLv3 as well.
+
+One consequence that outlives the licence file: distributing a binary owes the
+*corresponding source* for the bundled components, not only for slurp's own
+code. Publishing from this repo covers slurp; release notes need to link
+upstream for youtubedl-android, yt-dlp, ffmpeg and aria2c.
+
+---
+
 ## Ideas
 
 - Remember completed downloads across launches (the queue is in-memory only).

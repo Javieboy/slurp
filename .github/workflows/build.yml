@@ -36,6 +36,12 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
+      # Seconds, and no Android SDK involved — UrlSniffer is pure JVM. Runs
+      # before the APK build so a parser regression fails fast rather than
+      # after packaging 90 MB.
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
       - name: Build debug APKs
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 

@@ -127,4 +127,6 @@ dependencies {
     implementation(libs.youtubedl.library)
     implementation(libs.youtubedl.ffmpeg)
     implementation(libs.youtubedl.aria2c)
+
+    testImplementation(libs.junit)
 }

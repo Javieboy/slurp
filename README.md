@@ -127,9 +127,10 @@ signs, verifies and publishes; the tag has to match `versionName` in
 git tag v1.4.0 && git push origin v1.4.0
 ```
 
-It uploads `app-arm64-v8a-release.apk` and `app-universal-release.apk` under
-those exact names, because `AppUpdater` builds its download URL from them —
-device ABI first, universal as the fallback.
+It publishes `slurp-arm64-v8a-recommended.apk` and `slurp-universal-fallback.apk`.
+Those exact names matter: `AppUpdater` derives its download URL from them, device
+ABI first and universal as the fallback. It also still recognises the older
+`app-*-release.apk` scheme, which is what releases up to v1.2.0 used.
 
 One-time setup. Make a key, keep it somewhere you will still have in five
 years, and give it to Actions:
@@ -153,10 +154,14 @@ Move the `.jks` somewhere that survives Termux being uninstalled — the app's
 private storage does not. `termux-setup-storage` then a copy into
 `~/storage/shared` is the usual route.
 
-Four repository secrets, under Settings → Secrets and variables → Actions:
-`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`,
-`SIGNING_KEY_PASSWORD`. A GitHub secret is **not a backup** — they are
-write-only and cannot be read back out. Keep your own copy of the `.jks`.
+Three repository secrets, under Settings → Secrets and variables → Actions:
+`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD` and `SIGNING_KEY_ALIAS`.
+`SIGNING_KEY_PASSWORD` is optional and falls back to the store password, which
+is what keytool uses when you press Enter at its key-password prompt; set it
+only for a key that genuinely has its own.
+
+A GitHub secret is **not a backup** — they are write-only and cannot be read
+back out. Keep your own copy of the `.jks`.
 
 Local `assembleRelease` still falls back to this machine's debug key when
 neither the env vars nor a `keystore.properties` resolve, which keeps

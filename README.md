@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/social-preview.png" alt="slurp — paste a link, get the file" width="640">
+</p>
+
 # slurp
 
 Paste a link, get the file. Android.
@@ -53,18 +57,22 @@ something stops working.
 |---|---|
 | Pull a URL out of share-sheet noise | `core/UrlSniffer.kt` |
 | Site badge | `core/Site.kt` |
-| yt-dlp wrapper — probe, download, update | `engine/Ytdlp.kt` |
+| yt-dlp wrapper — probe, download, engine update | `engine/Ytdlp.kt` |
 | Quality → yt-dlp format selectors | `engine/FormatPolicy.kt` |
-| Queue, retries, state | `download/DownloadQueue.kt` |
+| Queue, retries, stale-extractor recovery | `download/DownloadQueue.kt` |
 | Staying alive in the background | `download/DownloadService.kt` |
 | Landing files in the gallery | `download/MediaStoreSink.kt` |
+| Updating the app itself, from `releases.atom` | `update/AppUpdater.kt` |
+| Settings, and where downloads land | `ui/SettingsDialog.kt`, `data/Prefs.kt` |
+| Play, and the best-effort Folder button | `ui/OpenFile.kt` |
 | UI | `ui/HomeScreen.kt` |
 
 A download is two steps. First a **probe** (`--dump-single-json
 --flat-playlist`) asks yt-dlp what the link actually is; a playlist expands into
 one job per video right there. Then each job downloads into its own empty
-directory and whatever file appears is copied into `Movies/slurp` (or
-`Music/slurp`) through MediaStore.
+directory and whatever file appears is copied through MediaStore into
+`Movies/slurp` for video and `Music/slurp` for audio — the folder name, and
+whether video goes to Movies, DCIM or Download, are configurable in Settings.
 
 The empty-directory trick is deliberate. Reconstructing yt-dlp's output path in
 Kotlin is guesswork — extensions change after a merge, titles get sanitised
@@ -196,7 +204,7 @@ made no requests of its own — and the fix is ported from there. The atom feed 
 served by the web host under no such quota.
 
 The per-ABI splits mean the asset name depends on the device, so the derived URL
-is HEAD-checked before use and falls back to `app-universal-release.apk`. **Do
+is HEAD-checked before use and falls back to `slurp-universal-fallback.apk`. **Do
 not rename the release assets** without changing `AppUpdater.resolveApkUrl`; a
 rename degrades to the universal APK rather than handing the installer a 404
 page, but only because of that guard.
@@ -224,15 +232,19 @@ gesture; keep it that way.
 ./gradlew assembleDebug
 ```
 
-Needs JDK 17+ and an Android SDK with API 36 installed. Output lands in
-`app/build/outputs/apk/debug/`:
+Needs JDK 17+ and an Android SDK with API 36 installed. This is for working on
+slurp — if you just want the app, take a [release](#install) instead. Output
+lands in `app/build/outputs/apk/debug/`:
 
 | APK | Size |
 |---|---|
-| `app-arm64-v8a-debug.apk` | 90 MB ← install this one |
+| `app-arm64-v8a-debug.apk` | 90 MB ← the one to sideload while developing |
 | `app-armeabi-v7a-debug.apk` | 83 MB |
 | `app-x86_64-debug.apk` | 93 MB |
 | `app-universal-debug.apk` | 191 MB |
+
+A debug build is signed with your machine's debug key, so it will not install
+over a release-signed slurp. Uninstall first, or use a separate device.
 
 ### Do not "update" the toolchain
 
@@ -258,32 +270,34 @@ where Google froze that artifact.
 
 ## Status
 
-**Compiles.** `./gradlew assembleDebug` produces the four APKs above; the arm64
-one was checked and contains the Python runtime, ffmpeg, ffprobe and aria2c, and
-reports its package as `app.slurp`.
+**Builds and ships.** `./gradlew assembleRelease` is green, `UrlSniffer` has unit
+tests, and v1.3.1 was built, signed and published by CI from a pushed tag. The
+published APK was downloaded back off the release and its certificate checked,
+so the signing path is confirmed end to end rather than assumed.
 
-**Runs, and downloads.** First run on a real phone, 2026-08-26: two Facebook
-videos queued from a paste, downloaded, extracted to m4a with the Audio quality
-selected, and landed in the gallery — the job cards read "Saved". That single
-screenshot exercised almost the whole pipeline at once: engine init and the
-Python unpack from the APK, probe, format selection, download, the ffmpeg
-post-process, and the MediaStore write.
+**Runs, and downloads.** Confirmed on a real phone across several sessions:
+engine init and the Python unpack from the APK, probe, format selection,
+download, the ffmpeg post-process to m4a, and the MediaStore write. Facebook and
+YouTube both work, video and audio-only. Finished cards show Play and Folder.
 
 Two predictions in this file were wrong and are worth recording. The JSON field
 names in `model/Probe.kt` were called the most likely first failure; they were
 fine. Facebook was expected to need cookies; it did not.
 
-**YouTube failed, and it is a network problem rather than a code one.** The
-probe succeeded — the title came back — and the media fetch died with
-`unable to download video data: HTTP Error 403: Forbidden`. The phone was on a
-VPN. YouTube serves the watch page to anyone but refuses format URLs from exit
-IPs it dislikes, which produces exactly that split. The bundled yt-dlp
-(2025.11.12) was pulled out of the APK and run against the same flags from a
-residential IP: it downloaded fine. `Ytdlp.hintFor` now says so on the card.
+**On the VPN 403.** A YouTube download once failed with
+`unable to download video data: HTTP Error 403: Forbidden` while the probe
+succeeded — the title came back but the media fetch did not. The phone was on a
+VPN, and the bundled yt-dlp was pulled out of the APK and run with the same
+flags from a residential IP, where it downloaded fine. So the cause was the exit
+IP, not the code. **It is not universal, though:** later downloads succeeded with
+the VPN still on. It depends which exit address YouTube is willing to serve, so
+treat a 403 as "try without the VPN", not as proof the VPN is always fatal.
+`Ytdlp.hintFor` says exactly that on the card.
 
-Still unexercised: the share-sheet path (both test links were pasted), the
-foreground service, cancel and retry, playlists, and both **Update** actions —
-which is the one thing the whole architecture rests on.
+Still unexercised: the **share-sheet path** — every test link so far has been
+pasted, and sharing is the app's headline gesture — plus playlists end to end,
+cancel and retry, the automatic stale-extractor recovery (which needs a genuinely
+broken site to trigger), and **Update app** performing a real in-place install.
 
 ---
 
@@ -306,10 +320,11 @@ file to find them.
   which matters most for a long playlist.
 - **Downloads run one at a time**, deliberately: these sites rate-limit hard
   and parallel requests earn a block that looks like a broken extractor.
-- **A VPN often causes `HTTP Error 403` on YouTube.** The site serves the page
-  to anyone but refuses the media to exit IPs it dislikes, so the probe
-  succeeds and the download fails. slurp says so on the card — turn the VPN
-  off and retry.
+- **A VPN can cause `HTTP Error 403` on YouTube.** The site serves the page to
+  anyone but refuses the media to exit IPs it dislikes, so the probe succeeds
+  and the download fails. It depends on the exit address — plenty of VPN
+  downloads work fine. If you hit a 403, try without it. slurp says so on the
+  card.
 - **The APK is large**, because a Python runtime ships inside it.
 
 ---
@@ -331,9 +346,18 @@ upstream for youtubedl-android, yt-dlp, ffmpeg and aria2c.
 
 ## Ideas
 
-- Remember completed downloads across launches (the queue is in-memory only).
-- Auto-check for a yt-dlp update weekly instead of on demand — `Prefs.lastEngineUpdate` already exists for it.
-- Show a thumbnail on the job card; the probe already returns the URL.
-- Cookie import, for links that need a login. This is the single biggest
-  functional gap: private Instagram and most of Facebook will fail without it.
+- **Persist the queue**, so it survives the process being killed, and keep a
+  history of finished downloads. The oldest gap in the project, and the one that
+  now matters most: a long playlist queues dozens of jobs that drain one at a
+  time, and losing the app loses all of them.
+- **Cookie import**, for links that need a login. The single biggest functional
+  gap — private Instagram and most of Facebook cannot work without it. Note it
+  changes slurp's security posture: `Prefs` currently holds nothing secret, and
+  that would stop being true.
+- Check for updates on a schedule rather than on demand, for both the app and
+  the engine. `Prefs.lastEngineUpdate` is already read by the recovery path.
+- Show a thumbnail on the job card; the probe already returns the URL, and it is
+  currently parsed and then dropped.
+- Run downloads from *different* sites in parallel. The one-at-a-time rule is
+  about per-host rate limiting, so it does not need to be global.
 - Subtitle download for YouTube.

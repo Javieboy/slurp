@@ -181,8 +181,18 @@ object AppUpdater {
      */
     private suspend fun resolveApkUrl(tag: String): String? = withContext(Dispatchers.IO) {
         val abi = Build.SUPPORTED_ABIS.firstOrNull()
+        // Two naming schemes, and both have to stay here. Releases from 1.3.1
+        // name assets for whoever is reading the releases page rather than for
+        // Gradle; 1.3.0 and earlier used the raw Gradle output names and are
+        // still installed on people's phones. Dropping the old names would
+        // stand those installs up with "no APK matched this device".
+        //
+        // Per-ABI before universal in both schemes, so the ~85 MB build always
+        // wins over the ~190 MB one when a release carries both.
         val candidates = listOfNotNull(
+            abi?.let { "$DOWNLOAD_BASE/$tag/slurp-$it-recommended.apk" },
             abi?.let { "$DOWNLOAD_BASE/$tag/app-$it-release.apk" },
+            "$DOWNLOAD_BASE/$tag/slurp-universal-fallback.apk",
             "$DOWNLOAD_BASE/$tag/app-universal-release.apk",
         )
         candidates.firstOrNull { exists(it) }

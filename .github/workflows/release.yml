@@ -141,11 +141,24 @@ jobs:
 
           Commits in this release: https://github.com/Javieboy/slurp/commits/$GITHUB_REF_NAME
           EOF
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file /tmp/notes.md \
-            app/build/outputs/apk/release/slurp-arm64-v8a-recommended.apk \
-            app/build/outputs/apk/release/slurp-universal-fallback.apk
+          ASSETS="app/build/outputs/apk/release/slurp-arm64-v8a-recommended.apk
+          app/build/outputs/apk/release/slurp-universal-fallback.apk"
+
+          # The release may already exist: tagging through the GitHub web UI
+          # creates one, and so does a re-run after a later step failed. Adding
+          # assets to it is the right move there — `create` would just abort.
+          # Checked explicitly rather than with `create || upload`, so a real
+          # failure (auth, network) still fails instead of being papered over.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "release exists; attaching assets to it"
+            gh release upload "$GITHUB_REF_NAME" --clobber $ASSETS
+            gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file /tmp/notes.md \
+              $ASSETS
+          fi
 
       - name: Shred the keystore
         if: always()

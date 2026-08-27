@@ -117,6 +117,19 @@ keytool -genkeypair -v -keystore slurp-release.jks -alias slurp \
 base64 -w0 slurp-release.jks     # paste into the SIGNING_KEYSTORE_BASE64 secret
 ```
 
+A phone is enough for all of this — no laptop required. In Termux:
+
+```
+pkg install openjdk-17 git termux-api
+keytool -genkeypair -v -keystore slurp-release.jks -alias slurp \
+  -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 slurp-release.jks | termux-clipboard-set   # now paste it into the secret
+```
+
+Move the `.jks` somewhere that survives Termux being uninstalled — the app's
+private storage does not. `termux-setup-storage` then a copy into
+`~/storage/shared` is the usual route.
+
 Four repository secrets, under Settings → Secrets and variables → Actions:
 `SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`,
 `SIGNING_KEY_PASSWORD`. A GitHub secret is **not a backup** — they are

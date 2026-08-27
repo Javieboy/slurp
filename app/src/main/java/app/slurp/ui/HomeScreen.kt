@@ -1,7 +1,10 @@
 package app.slurp.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +19,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -24,6 +30,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,6 +51,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,6 +121,11 @@ fun HomeScreen(
         AppUpdater.messages.collect { snackbars.showSnackbar(it) }
     }
 
+    // Silent, once a day. Lights the dot on the menu and says nothing.
+    LaunchedEffect(Unit) {
+        AppUpdater.checkOnLaunch(context, prefs)
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbars) },
         topBar = {
@@ -120,24 +135,53 @@ fun HomeScreen(
                     if (jobs.any { it.state.isTerminal }) {
                         TextButton(onClick = { DownloadQueue.clearFinished() }) { Text("Clear") }
                     }
-                    // An update ready to install outranks everything else here.
-                    updateReady?.let { ready ->
-                        TextButton(
-                            enabled = !appBusy,
-                            onClick = { AppUpdater.downloadAndInstall(context, ready) },
-                        ) { Text(if (appBusy) "Downloading…" else "Install ${ready.version}") }
-                    }
-
                     Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        // A waiting update is a dot on the menu, not a banner
+                        // and not a dialog. Someone who opened slurp to download
+                        // something should not have to dismiss anything first;
+                        // the dot is still there when they are done.
+                        BadgedBox(
+                            badge = {
+                                if (updateReady != null && !appBusy) {
+                                    Badge(containerColor = MaterialTheme.colorScheme.error)
+                                }
+                            },
+                        ) {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = if (updateReady != null) {
+                                        "More — an update is available"
+                                    } else {
+                                        "More"
+                                    },
+                                )
+                            }
                         }
                         DropdownMenu(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false },
                         ) {
+                            // Only when there is something to install, and first,
+                            // because that is what the dot brought them here for.
+                            updateReady?.let { ready ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (appBusy) "Downloading…" else "Install ${ready.version}",
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    },
+                                    enabled = !appBusy,
+                                    onClick = {
+                                        menuOpen = false
+                                        AppUpdater.downloadAndInstall(context, ready)
+                                    },
+                                )
+                                HorizontalDivider()
+                            }
                             DropdownMenuItem(
-                                text = { Text(if (appBusy) "Checking…" else "Update app") },
+                                text = { Text(if (appBusy) "Checking…" else "Check for updates") },
                                 enabled = !appBusy,
                                 onClick = {
                                     menuOpen = false
@@ -244,6 +288,14 @@ fun HomeScreen(
                                     }
                                 }
                             },
+                            onShare = {
+                                val mime = OpenFile.mimeFor(job.savedAs, job.quality.isAudio)
+                                if (!OpenFile.share(context, job.savedUri!!, mime, job.title)) {
+                                    snackbarScope.launch {
+                                        snackbars.showSnackbar("Nothing on this phone can share that")
+                                    }
+                                }
+                            },
                             onOpenFolder = {
                                 if (!OpenFile.openFolder(context, job.savedIn.orEmpty())) {
                                     snackbarScope.launch {
@@ -301,12 +353,27 @@ private fun EngineErrorBanner(message: String) {
 private fun JobCard(
     job: Job,
     onPlay: () -> Unit,
+    onShare: () -> Unit,
     onOpenFolder: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Null until it arrives, and null forever for sites that return
+                // no poster — the row just closes up rather than holding a gap.
+                rememberThumbnail(job.thumbnail)?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(width = 72.dp, height = 48.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .padding(end = 0.dp),
+                    )
+                    Spacer(Modifier.size(10.dp))
+                }
                 Column(Modifier.weight(1f)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
@@ -375,6 +442,14 @@ private fun JobCard(
                             modifier = Modifier.size(18.dp),
                         )
                         Text("  Play")
+                    }
+                    TextButton(onClick = onShare) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text("  Share")
                     }
                     // No icon: material-icons-core has no folder glyph, and the
                     // extended artifact is a dependency this project does not

@@ -1,6 +1,7 @@
 package app.slurp.model
 
 import app.slurp.core.Site
+import kotlinx.serialization.Serializable
 
 enum class JobState {
     CHECKING, QUEUED, DOWNLOADING, SAVING, DONE, FAILED, CANCELLED;
@@ -8,6 +9,12 @@ enum class JobState {
     val isTerminal: Boolean get() = this == DONE || this == FAILED || this == CANCELLED
 }
 
+/**
+ * Serializable because the queue is written to disk on every change. Enums are
+ * stored by name, so reordering [JobState], [Quality] or [Site] is safe but
+ * renaming a constant will orphan jobs saved under the old name.
+ */
+@Serializable
 data class Job(
     val id: String,
     val url: String,
@@ -35,6 +42,8 @@ data class Job(
     val engineRetried: Boolean = false,
     /** "3 / 12" when this job came from a playlist, null otherwise. */
     val batchLabel: String? = null,
+    /** Poster image from the probe, shown on the card. */
+    val thumbnail: String? = null,
 ) {
     val processId: String get() = "slurp-$id"
 }

@@ -63,7 +63,17 @@ object DownloadQueue {
     private fun prefs(): Prefs = prefsRef
 
     fun attach(context: Context) {
+        if (::appContext.isInitialized) return
         appContext = context.applicationContext
+
+        // Restore whatever was queued when the process last died, then keep the
+        // file in step with every change. Collecting the flow rather than
+        // saving at each call site means no future edit can forget to persist.
+        _jobs.value = QueueStore.load(appContext)
+        scope.launch {
+            _jobs.collect { QueueStore.save(appContext, it) }
+        }
+        if (_jobs.value.any { it.state == JobState.QUEUED }) startPump()
     }
 
     /**
@@ -135,6 +145,7 @@ object DownloadQueue {
                     quality = placeholder.quality,
                     state = JobState.QUEUED,
                     batchLabel = if (result.isPlaylist) "${index + 1} / $total" else null,
+                    thumbnail = item.thumbnail,
                 )
             }
 

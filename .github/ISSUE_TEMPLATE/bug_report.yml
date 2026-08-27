@@ -1,0 +1,84 @@
+name: Bug report
+description: Something in slurp did not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: if a **site** stopped working, try **Update engine** from
+        the menu first. Extractors break when sites change their players, and
+        upstream usually ships a fix within days — that button fetches it
+        without waiting for a new release, and it fixes most site breakage.
+
+  - type: input
+    id: version
+    attributes:
+      label: slurp version
+      description: Menu → Settings, at the bottom.
+      placeholder: "1.4.0"
+    validations:
+      required: true
+
+  - type: input
+    id: android
+    attributes:
+      label: Android version and phone
+      placeholder: "Android 14, Xiaomi Redmi Note 12"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: site
+    attributes:
+      label: Which site
+      options:
+        - YouTube
+        - TikTok
+        - Instagram
+        - Facebook
+        - Threads
+        - X
+        - Other
+        - Not site-specific
+    validations:
+      required: true
+
+  - type: dropdown
+    id: vpn
+    attributes:
+      label: Was a VPN on?
+      description: >
+        This matters more than it looks. Some sites serve the page to anyone but
+        refuse the actual media to VPN exit addresses, which shows up as the
+        title appearing and then the download failing with a 403.
+      options:
+        - "No"
+        - "Yes"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what slurp did instead of working.
+      placeholder: |
+        Shared a link from the YouTube app. The card appeared, then went red.
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: The error on the card
+      description: >
+        Copy the red line under the title, if there was one. That text is
+        yt-dlp's own message and is usually the whole answer.
+      render: text
+
+  - type: markdown
+    attributes:
+      value: |
+        **Please do not paste links to private or personal content.** The site
+        name and the error text are almost always enough to work out the cause.

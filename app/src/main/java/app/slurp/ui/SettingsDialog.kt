@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -20,9 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.slurp.data.Prefs
 import app.slurp.data.VideoRoot
+import app.slurp.update.AppUpdater
 
 /**
  * Settings, such as they are.
@@ -103,6 +106,16 @@ fun SettingsDialog(prefs: Prefs, onDismiss: () -> Unit) {
                     }
                     Switch(checked = oneTap, onCheckedChange = { oneTap = it })
                 }
+
+                // Here so a bug report can name a version. Nobody knows which
+                // build they are on otherwise, and it is the first thing any
+                // report needs.
+                HorizontalDivider()
+                Text(
+                    "slurp ${AppUpdater.installedVersion(LocalContext.current)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
     )

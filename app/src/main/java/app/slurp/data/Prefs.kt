@@ -53,6 +53,11 @@ class Prefs(context: Context) {
             sp.edit().putString(KEY_FOLDER, cleaned).apply()
         }
 
+    /** Last automatic check of the release feed, epoch millis. Rate-limits the launch check. */
+    var lastUpdateCheck: Long
+        get() = sp.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+        set(value) = sp.edit().putLong(KEY_LAST_UPDATE_CHECK, value).apply()
+
     /** Where video lands. Audio always goes to `Music`, which is where players look. */
     var videoRoot: VideoRoot
         get() = runCatching { VideoRoot.valueOf(sp.getString(KEY_VIDEO_ROOT, null) ?: "") }
@@ -77,6 +82,7 @@ class Prefs(context: Context) {
         private const val KEY_QUALITY = "quality"
         private const val KEY_ONE_TAP = "one_tap"
         private const val KEY_LAST_UPDATE = "last_engine_update"
+        private const val KEY_LAST_UPDATE_CHECK = "last_update_check"
         private const val KEY_FOLDER = "folder_name"
         private const val KEY_VIDEO_ROOT = "video_root"
     }

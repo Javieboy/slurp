@@ -32,6 +32,29 @@ object OpenFile {
     }
 
     /**
+     * Hands the finished file to the share sheet.
+     *
+     * Same read grant as [play]: the receiving app is another process and has no
+     * rights to a MediaStore URI unless the intent carries them. The chooser is
+     * explicit rather than relying on a default, because "share" almost always
+     * means somewhere different from last time.
+     */
+    fun share(context: Context, uri: String, mime: String?, title: String?): Boolean = try {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = mime ?: "video/*"
+            putExtra(Intent.EXTRA_STREAM, Uri.parse(uri))
+            title?.let { putExtra(Intent.EXTRA_TITLE, it) }
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(
+            Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
+
+    /**
      * Best effort at showing the containing folder.
      *
      * Android has no supported "reveal this file" intent. `ACTION_VIEW` on a

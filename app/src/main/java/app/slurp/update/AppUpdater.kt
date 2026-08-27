@@ -62,7 +62,13 @@ object AppUpdater {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull() ?: "0"
 
-    fun check(context: Context) {
+    /**
+     * @param announce whether to say anything. A check the user asked for owes
+     * them an answer either way; the one that runs by itself at launch should
+     * be silent and just light the dot on the menu, which is the whole point of
+     * not interrupting someone who opened the app to download something.
+     */
+    fun check(context: Context, announce: Boolean = true) {
         if (_busy.value) return
         val app = context.applicationContext
         scope.launch {
@@ -71,12 +77,12 @@ object AppUpdater {
                 val installed = installedVersion(app)
                 val tag = fetchLatestTag()
                 if (tag == null) {
-                    _messages.emit("Could not read the release feed")
+                    if (announce) _messages.emit("Could not read the release feed")
                     return@launch
                 }
                 val latest = tag.removePrefix("v")
                 if (compareVersions(latest, installed) <= 0) {
-                    _messages.emit("Already on the latest version ($installed)")
+                    if (announce) _messages.emit("Already on the latest version ($installed)")
                     _available.value = null
                     return@launch
                 }
@@ -84,18 +90,34 @@ object AppUpdater {
                 if (url == null) {
                     // A release whose assets were named differently. Say so
                     // rather than handing the installer a 404 page.
-                    _messages.emit("$latest is out, but no APK matched this device")
+                    if (announce) _messages.emit("$latest is out, but no APK matched this device")
                     return@launch
                 }
                 _available.value = Update(tag, latest, url)
-                _messages.emit("Version $latest is available")
+                if (announce) _messages.emit("Version $latest is available")
             } catch (e: Throwable) {
-                _messages.emit("Update check failed: ${e.message ?: e::class.java.simpleName}")
+                if (announce) {
+                    _messages.emit("Update check failed: ${e.message ?: e::class.java.simpleName}")
+                }
             } finally {
                 _busy.value = false
             }
         }
     }
+
+    /**
+     * The check that runs on launch, at most once a day and never saying
+     * anything. A self-updater nobody taps is a self-updater that does not
+     * deliver fixes, and the release feed costs one small request.
+     */
+    fun checkOnLaunch(context: Context, prefs: app.slurp.data.Prefs) {
+        val since = System.currentTimeMillis() - prefs.lastUpdateCheck
+        if (prefs.lastUpdateCheck != 0L && since < LAUNCH_CHECK_INTERVAL_MS) return
+        prefs.lastUpdateCheck = System.currentTimeMillis()
+        check(context, announce = false)
+    }
+
+    private const val LAUNCH_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
     /**
      * Downloads through [DownloadManager] rather than in-process: the APK is

@@ -48,22 +48,45 @@ object QueueStore {
     /**
      * Reads the queue back, repairing anything that was mid-flight.
      *
-     * A job saved as DOWNLOADING or SAVING was interrupted by the process
-     * dying: its part-files are gone with the work directory, so it goes back to
-     * QUEUED to start again rather than pretending to still be running. CHECKING
-     * is the same — the probe never finished.
+     * DOWNLOADING and CHECKING requeue safely: the work directory died with the
+     * process and nothing had reached the gallery, so starting again costs
+     * bandwidth and nothing else.
+     *
+     * **SAVING does not.** That state spans `MediaStoreSink.publish`, which
+     * copies the file into the gallery and only then marks the job DONE — so a
+     * process killed inside it may well have written the file already, with only
+     * the DONE state lost. Requeueing downloaded the whole thing a second time
+     * and MediaStore, which will not overwrite, filed it as "name (1)". Two
+     * copies of the same video, silently.
+     *
+     * Installing an app update is exactly this: the installer kills the running
+     * process, so any download in SAVING at that moment hit it.
+     *
+     * There is no way from here to tell whether the write finished, so the job
+     * stops and says so. A wasted retry the user chose beats a duplicate they
+     * did not.
      */
     fun load(context: Context): List<Job> = runCatching {
         val f = file(context)
         if (!f.exists()) return emptyList()
         json.decodeFromString(serializer, f.readText()).map { job ->
             when (job.state) {
-                JobState.DOWNLOADING, JobState.SAVING, JobState.CHECKING ->
+                JobState.DOWNLOADING, JobState.CHECKING ->
                     job.copy(
                         state = JobState.QUEUED,
                         progress = -1f,
                         etaSeconds = -1,
                         status = "Interrupted — will retry",
+                    )
+                JobState.SAVING ->
+                    job.copy(
+                        state = JobState.FAILED,
+                        progress = -1f,
+                        etaSeconds = -1,
+                        status = "",
+                        error = "Interrupted while saving",
+                        hint = "This may already be in your gallery — check before " +
+                            "retrying, or you will end up with two copies.",
                     )
                 else -> job
             }

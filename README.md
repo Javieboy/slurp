@@ -14,8 +14,8 @@ inside whichever app you are already in. The link is queued before the share
 sheet has finished closing.
 
 <p align="center">
-  <img src="docs/screenshot-1.3.1.jpg" width="320"
-       alt="slurp after a download: a finished YouTube job reading Saved, with Play and Folder buttons on the card">
+  <img src="docs/screenshot-home.jpg" width="320"
+       alt="slurp's home screen: a link field, quality chips for Best, 1080p, 720p and Audio, and a Download button">
 </p>
 
 ---

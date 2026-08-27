@@ -9,6 +9,29 @@ The intended gesture is not pasting at all — it is **Share → slurp** from
 inside whichever app you are already in. The link is queued before the share
 sheet has finished closing.
 
+<p align="center">
+  <img src="docs/queue.jpg" width="320"
+       alt="slurp's queue: two finished downloads reading Saved, and one failure showing the reason on the card">
+</p>
+
+---
+
+## Install
+
+[**Latest release**](https://github.com/Javieboy/slurp/releases/latest) →
+take **`slurp-arm64-v8a-recommended.apk`**. It fits any phone from roughly 2018
+on. If it refuses to install, that phone is 32-bit — take
+`slurp-universal-fallback.apk` instead, which works on any CPU at twice the
+size.
+
+Needs Android 10 or newer. slurp is not on the Play Store, so Android will warn
+about installing from an unknown source; allow it when prompted. After that,
+**Update app** in the overflow menu handles every release on its own.
+
+No account, no sign-in, no server. slurp holds no credentials of any kind and
+asks for five permissions, all of them about downloading and notifying. That is
+also why sites needing a login do not work — see [Known limits](#known-limits).
+
 ---
 
 ## How it works
@@ -264,6 +287,25 @@ which is the one thing the whole architecture rests on.
 For media you have a right to keep — your own uploads, things published for
 download, material you have permission to archive. slurp does not touch DRM
 and cannot download from subscription streaming services.
+
+---
+
+## Known limits
+
+The things a new user hits first, collected so nobody has to read the whole
+file to find them.
+
+- **No cookie import**, so anything needing a login fails — private Instagram
+  and most of Facebook. The single biggest functional gap.
+- **The queue is in memory.** Killing the app loses whatever is still queued,
+  which matters most for a long playlist.
+- **Downloads run one at a time**, deliberately: these sites rate-limit hard
+  and parallel requests earn a block that looks like a broken extractor.
+- **A VPN often causes `HTTP Error 403` on YouTube.** The site serves the page
+  to anyone but refuses the media to exit IPs it dislikes, so the probe
+  succeeds and the download fails. slurp says so on the card — turn the VPN
+  off and retry.
+- **The APK is large**, because a Python runtime ships inside it.
 
 ---
 

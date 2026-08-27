@@ -94,18 +94,46 @@ Do *not* add `android.bundle.enableUncompressedNativeLibs` to
 `gradle.properties` to "help". AGP removed it in 8.1 and now fails the build
 outright if it is present; its old behaviour is the default anyway.
 
-**Releases are debug-signed, on purpose.** There is no release keystore. When
-`keystore.properties` is absent — it is gitignored and normally is — the release
-build signs with this machine's debug key, so cutting a release needs no manual
-signing step.
+### Releasing
 
-The consequence is the one nyaarank documents: Android only accepts an update
-signed with the same key as the install, so **releases have to keep coming from
-this machine.** Building on another machine means uninstall-then-reinstall for
-anyone who already has it. To move to a real key, drop a `keystore.properties`
-in the repo root with `storeFile` / `storePassword` / `keyAlias` /
-`keyPassword`; that path is already wired, and switching also costs one
-uninstall because the key changes.
+**Cutting a release is pushing a tag.** `.github/workflows/release.yml` builds,
+signs, verifies and publishes; the tag has to match `versionName` in
+`app/build.gradle.kts` or it fails early.
+
+```
+git tag v1.4.0 && git push origin v1.4.0
+```
+
+It uploads `app-arm64-v8a-release.apk` and `app-universal-release.apk` under
+those exact names, because `AppUpdater` builds its download URL from them —
+device ABI first, universal as the fallback.
+
+One-time setup. Make a key, keep it somewhere you will still have in five
+years, and give it to Actions:
+
+```
+keytool -genkeypair -v -keystore slurp-release.jks -alias slurp \
+  -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 slurp-release.jks     # paste into the SIGNING_KEYSTORE_BASE64 secret
+```
+
+Four repository secrets, under Settings → Secrets and variables → Actions:
+`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`,
+`SIGNING_KEY_PASSWORD`. A GitHub secret is **not a backup** — they are
+write-only and cannot be read back out. Keep your own copy of the `.jks`.
+
+Local `assembleRelease` still falls back to this machine's debug key when
+neither the env vars nor a `keystore.properties` resolve, which keeps
+build-and-sideload working for your own testing. CI never publishes such a
+build: the workflow inspects what came out and refuses anything signed
+`CN=Android Debug`, because AGP falls back silently rather than failing, and a
+debug-signed release would be rejected as an update by every existing install.
+
+**Moving off the debug key costs exactly one uninstall, once.** Releases up to
+v1.2.0 were signed with a laptop's debug key. Android only accepts an update
+signed with the same key as the install, so the first real-key release has to be
+uninstalled and reinstalled by hand. Every release after it updates normally,
+from any machine — which is the point of moving.
 
 **Two different things are called "update", and confusing them wastes time.**
 

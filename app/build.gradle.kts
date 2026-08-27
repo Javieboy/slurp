@@ -1,14 +1,31 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
-// Release signing is read from keystore.properties at the repo root, which is
-// gitignored and must never be committed — it holds the key passwords. When it
-// is absent the release build still assembles, just unsigned, so CI and anyone
-// without the key can still verify that a release configuration compiles.
+// Release signing, resolved from the environment first and keystore.properties
+// second. CI sets the env vars from repository secrets; a local checkout uses
+// the file, which is gitignored and must never be committed — it holds the key
+// passwords. When neither is present the release build falls back to this
+// machine's debug key (see the buildTypes note below).
 val keystorePropsFile = rootProject.file("keystore.properties")
 val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
 }
+
+fun signingValue(env: String, prop: String): String? =
+    System.getenv(env)?.takeIf { it.isNotBlank() } ?: keystoreProps.getProperty(prop)
+
+val releaseStoreFile = signingValue("SIGNING_STORE_FILE", "storeFile")
+val releaseStorePassword = signingValue("SIGNING_STORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("SIGNING_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("SIGNING_KEY_PASSWORD", "keyPassword")
+
+// Every field, and the file actually on disk. A half-configured key must not
+// half-configure the build: it has to resolve completely or not at all.
+val hasReleaseKey = releaseStoreFile != null &&
+    releaseStorePassword != null &&
+    releaseKeyAlias != null &&
+    releaseKeyPassword != null &&
+    rootProject.file(releaseStoreFile).exists()
 
 plugins {
     alias(libs.plugins.android.application)
@@ -48,12 +65,12 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropsFile.exists()) {
+        if (hasReleaseKey) {
             create("release") {
-                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
-                storePassword = keystoreProps.getProperty("storePassword")
-                keyAlias = keystoreProps.getProperty("keyAlias")
-                keyPassword = keystoreProps.getProperty("keyPassword")
+                storeFile = rootProject.file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }

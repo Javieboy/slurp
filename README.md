@@ -11,7 +11,7 @@ sheet has finished closing.
 
 <p align="center">
   <img src="docs/queue.jpg" width="320"
-       alt="slurp's queue: two finished downloads reading Saved, and one failure showing the reason on the card">
+       alt="slurp after a download: a finished YouTube job reading Saved, with Play and Folder buttons on the card">
 </p>
 
 ---

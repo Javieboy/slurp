@@ -19,7 +19,12 @@ jobs:
       SIGNING_STORE_FILE: ${{ github.workspace }}/release.jks
       SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      # keytool offers to reuse the store password for the key, and pressing
+      # Enter accepts — which is what almost everyone does. Falling back means
+      # one secret instead of two saying the same thing, and one fewer place to
+      # paste the wrong value. Set SIGNING_KEY_PASSWORD only if the key really
+      # has its own password.
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4

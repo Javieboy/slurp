@@ -73,7 +73,27 @@ object DownloadQueue {
         scope.launch {
             _jobs.collect { QueueStore.save(appContext, it) }
         }
-        if (_jobs.value.any { it.state == JobState.QUEUED }) startPump()
+        // Deliberately no startPump() here. This runs from Application.onCreate,
+        // where Android 12+ refuses a foreground-service start, so a pump
+        // started from here would drain a restored queue with nothing keeping
+        // the process alive — the exact death the queue is written to disk to
+        // survive. [resume] does it instead, from the activity.
+    }
+
+    /**
+     * Picks a restored queue back up. Called from the activity, because that is
+     * where starting a foreground service is allowed.
+     *
+     * Every other entry into the pump ([submit], [retry]) already pairs
+     * [wakeService] with [startPump] for the same reason. This is the third,
+     * and it was missing: a queue reloaded from disk started downloading with
+     * no service at all.
+     */
+    fun resume() {
+        if (!::appContext.isInitialized) return
+        if (_jobs.value.none { it.state == JobState.QUEUED }) return
+        wakeService()
+        startPump()
     }
 
     /**
@@ -167,7 +187,19 @@ object DownloadQueue {
             }
             if (!admitted) return
 
-            if (result.isPlaylist) emit("Queued $total from “${result.title}”")
+            if (result.isPlaylist) {
+                // Entries yt-dlp listed but gave no usable link for are dropped
+                // by the probe. Say so — losing three of forty videos in
+                // silence is worse than a slightly noisier snackbar.
+                emit(
+                    if (result.skipped > 0) {
+                        "Queued $total from “${result.title}” — skipped " +
+                            "${result.skipped} with no link"
+                    } else {
+                        "Queued $total from “${result.title}”"
+                    }
+                )
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -237,6 +269,29 @@ object DownloadQueue {
     }
 
     private suspend fun runJob(job: Job) {
+        // The pump can be entered without a probe having run, and the probe is
+        // the only other place that initialises the engine. A queue restored
+        // from disk goes attach -> resume -> drain -> here, and retry() puts a
+        // job straight back on the queue; neither passes through admit().
+        //
+        // YoutubeDL.execute does not wait for init, it throws
+        // IllegalStateException("instance not initialized") — and on a cold
+        // start the unpack takes seconds, so the pump won that race every time
+        // and every restored job failed instantly with a bare Java message that
+        // neither looksLikeStaleExtractor nor hintFor had anything to say about.
+        Ytdlp.ensureInit(appContext)
+        Ytdlp.initError.value?.let { error ->
+            patch(job.id) {
+                it.copy(
+                    state = JobState.FAILED,
+                    status = "",
+                    error = error,
+                    hint = Ytdlp.hintFor(error),
+                )
+            }
+            return
+        }
+
         patch(job.id) { it.copy(state = JobState.DOWNLOADING, progress = -1f, status = "Starting…") }
         // Not cacheDir. Android reclaims cache directories under storage
         // pressure, and a multi-gigabyte video part-file is exactly what
@@ -256,6 +311,20 @@ object DownloadQueue {
                     else current.copy(progress = progress, etaSeconds = eta, status = line.trim().take(140))
                 }
             }
+
+            // Killing the process is not guaranteed to land. The library
+            // registers the process id inside execute(), so a cancel arriving
+            // before that finds nothing to destroy, and one arriving in the
+            // instant the download finished has nothing left to destroy either.
+            // Neither case throws, so without this the job the user just
+            // dismissed was published to the gallery anyway. The progress
+            // callback above has always made this check; the completion path
+            // never did. A missing job — remove() cancels and drops the card —
+            // counts the same.
+            //
+            // Past this point the check stops: publish() writes the file, and
+            // once it has, DONE is the honest state whatever the card says.
+            if (stateOf(job.id) != JobState.DOWNLOADING) return
 
             patch(job.id) { it.copy(state = JobState.SAVING, progress = 1f, status = "Saving…") }
             val saved = MediaStoreSink.publish(appContext, file, job.quality.isAudio, prefs())
@@ -317,9 +386,12 @@ object DownloadQueue {
             it.copy(status = "Might be a stale extractor — updating engine…", progress = -1f)
         }
 
+        // updateNow records lastEngineUpdate itself, so the cooldown is written
+        // by whoever performs the update rather than by each caller — the menu
+        // item used to record it from the composition, which meant an update
+        // finishing after the activity had gone was never written down at all.
         val result = runCatching { Ytdlp.updateNow(appContext) }
             .getOrElse { e -> "Update failed: ${Ytdlp.describe(e)}" }
-        prefs.lastEngineUpdate = System.currentTimeMillis()
 
         // A failed update leaves the same engine in place, so a retry would die
         // identically. Let the original error stand.

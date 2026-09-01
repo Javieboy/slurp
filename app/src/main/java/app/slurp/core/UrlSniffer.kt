@@ -15,8 +15,12 @@ object UrlSniffer {
 
     private val URL_RE = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
 
-    /** Characters that are legal in a URL but are almost always sentence punctuation here. */
-    private const val TRAILING_JUNK = ".,;:!?)]}'\"​‎‏"
+    /**
+     * Characters that are legal in a URL but are almost always sentence
+     * punctuation here. Quotes and apostrophes are deliberately absent:
+     * [URL_RE] already stops at them, so [clean] never sees one.
+     */
+    private const val TRAILING_JUNK = ".,;:!?)]}​‎‏"
 
     fun firstUrl(text: String?): String? {
         if (text.isNullOrBlank()) return null
@@ -74,13 +78,31 @@ object UrlSniffer {
      *
      * A bare `/playlist?list=…` is the playlist itself and still expands, which
      * is the behaviour the README describes and people actually want.
+     *
+     * **YouTube only, and anchored.** The rule was measured on YouTube and
+     * nowhere else, and its checks are far too loose to let loose on the ~1800
+     * other sites yt-dlp handles: an unanchored `list=` also matches
+     * `checklist=`, `waitlist=` and `tracklist=`, and a site whose genuine
+     * playlist URL happens to carry a `v=` parameter would have every entry but
+     * the first silently discarded. Answering false off YouTube errs towards
+     * expanding, which is the recoverable mistake of the two.
      */
     fun namesOneVideoInsideAPlaylist(url: String): Boolean {
+        val host = hostOf(url) ?: return false
+        val youTube = host == "youtube.com" || host.endsWith(".youtube.com")
+        val shortLink = host == "youtu.be" || host.endsWith(".youtu.be")
+        if (!youTube && !shortLink) return false
+
         val lower = url.lowercase()
-        if ("list=" !in lower) return false
+        // A real query parameter, not any substring that happens to end "list=".
+        if (!Regex("""[?&]list=""").containsMatchIn(lower)) return false
         // The playlist page itself — expand this one.
         if ("/playlist" in lower) return false
-        // Either the ?v= form or a youtu.be short link names a single video.
-        return Regex("""[?&]v=""").containsMatchIn(lower) || "youtu.be/" in lower
+        // Every form that names one specific video. /shorts, /live and /embed
+        // are here because they carry a list= exactly like /watch does when
+        // shared from inside a playlist, and used to fall through and expand.
+        return shortLink ||
+            Regex("""[?&]v=""").containsMatchIn(lower) ||
+            Regex("""/(shorts|live|embed)/""").containsMatchIn(lower)
     }
 }

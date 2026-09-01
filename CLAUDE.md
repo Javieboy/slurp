@@ -15,12 +15,19 @@ download, ffmpeg and the MediaStore write are all confirmed working. See
 "Status" in `README.md` for what that run did and did not cover.
 
 Still unexercised: the share sheet, the foreground service, cancel/retry,
-playlists, and both **Update** actions.
+playlists, queue restore, and both **Update** actions.
 
 Do not describe those as working until something has run them. And note that
 the two things this repo predicted would break first — the `Probe.kt` field
 names, and Facebook needing cookies — were both wrong. Prefer reproducing a
 failure over reasoning about where it probably is.
+
+The counterexample is worth holding alongside that. The persistent queue shipped
+in 1.4.0, was released, and could never once have restored a job: `runJob` did
+not initialise the engine, and the restore path is the only one that reaches it
+without probing first. Reading found it; no amount of using the app on a good
+day would have. So: reproduce failures rather than reasoning about them, *and*
+read the paths nothing has walked.
 
 Before changing versions in `gradle/libs.versions.toml`, read the "Do not
 'update' the toolchain" section of the README. They are a matched set and
@@ -30,8 +37,10 @@ bumping one independently breaks the build.
 
 `app.slurp` — Kotlin, Compose, Material3. No DI framework, no Room, no
 WorkManager. Singletons (`DownloadQueue`, `Ytdlp`) hold what little state there
-is, and the queue is in-memory: it does not survive process death. That is a
-known gap, not an oversight.
+is. The queue is persisted by `QueueStore` as a plain JSON file — deliberately
+not Room, since the whole state is one list — and restored on launch, with
+anything caught mid-save stopped rather than retried so a killed process cannot
+produce two copies of the same video.
 
 Dependencies are deliberately few: Compose, kotlinx-serialization, and
 youtubedl-android. Keep it that way — the APK is already ~180 MB because of the

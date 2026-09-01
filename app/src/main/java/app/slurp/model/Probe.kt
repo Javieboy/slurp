@@ -61,6 +61,12 @@ data class ProbeResult(
     val title: String,
     val isPlaylist: Boolean,
     val items: List<ProbeItem>,
+    /**
+     * Entries yt-dlp listed but gave no usable link for, and which are
+     * therefore not in [items]. Surfaced rather than swallowed: a playlist that
+     * queues 37 of 40 videos should say so.
+     */
+    val skipped: Int = 0,
 )
 
 data class ProbeItem(

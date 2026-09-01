@@ -110,11 +110,11 @@ fun HomeScreen(
         DownloadQueue.messages.collect { snackbars.showSnackbar(it) }
     }
 
+    // Only the message. Ytdlp.updateNow records lastEngineUpdate itself now —
+    // doing it here meant an update that finished after this composition had
+    // gone was never written down, because updateResults has no replay.
     LaunchedEffect(Unit) {
-        Ytdlp.updateResults.collect { result ->
-            prefs.lastEngineUpdate = System.currentTimeMillis()
-            snackbars.showSnackbar(result)
-        }
+        Ytdlp.updateResults.collect { result -> snackbars.showSnackbar(result) }
     }
 
     LaunchedEffect(Unit) {
@@ -192,9 +192,23 @@ fun HomeScreen(
                             // the bundled yt-dlp without touching the APK, which
                             // is how a site that broke overnight gets fixed
                             // without waiting for a release.
+                            // Disabled until the engine is up: updateYoutubeDL
+                            // asserts initialisation like every other call into
+                            // the library, so tapping this during the
+                            // first-launch unpack returned "Update failed:
+                            // instance not initialized", which reads like the
+                            // update itself is broken.
                             DropdownMenuItem(
-                                text = { Text(if (updating) "Updating engine…" else "Update engine") },
-                                enabled = !updating,
+                                text = {
+                                    Text(
+                                        when {
+                                            updating -> "Updating engine…"
+                                            !engineReady -> "Update engine (engine starting…)"
+                                            else -> "Update engine"
+                                        }
+                                    )
+                                },
+                                enabled = !updating && engineReady,
                                 onClick = {
                                     menuOpen = false
                                     Ytdlp.requestUpdate(context)

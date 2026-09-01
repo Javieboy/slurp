@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import androidx.core.content.FileProvider
+import app.slurp.data.Prefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -57,10 +58,15 @@ object AppUpdater {
 
     data class Update(val tag: String, val version: String, val apkUrl: String)
 
-    fun installedVersion(context: Context): String =
+    /**
+     * Null when the package manager will not say. Deliberately not "0": that
+     * made every published release compare as newer, so a single failed lookup
+     * left the update dot lit permanently with nothing able to clear it.
+     */
+    fun installedVersion(context: Context): String? =
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrNull() ?: "0"
+        }.getOrNull()
 
     /**
      * @param announce whether to say anything. A check the user asked for owes
@@ -68,18 +74,26 @@ object AppUpdater {
      * be silent and just light the dot on the menu, which is the whole point of
      * not interrupting someone who opened the app to download something.
      */
-    fun check(context: Context, announce: Boolean = true) {
+    fun check(context: Context, announce: Boolean = true, record: Prefs? = null) {
         if (_busy.value) return
         val app = context.applicationContext
         scope.launch {
             _busy.value = true
             try {
                 val installed = installedVersion(app)
+                if (installed == null) {
+                    if (announce) _messages.emit("Could not read this app's version")
+                    return@launch
+                }
                 val tag = fetchLatestTag()
                 if (tag == null) {
                     if (announce) _messages.emit("Could not read the release feed")
                     return@launch
                 }
+                // The launch check's once-a-day window opens from here, not
+                // from before the request: written up front, one launch with no
+                // network burned the whole day and nothing tried again.
+                record?.lastUpdateCheck = System.currentTimeMillis()
                 val latest = tag.removePrefix("v")
                 if (compareVersions(latest, installed) <= 0) {
                     if (announce) _messages.emit("Already on the latest version ($installed)")
@@ -110,11 +124,10 @@ object AppUpdater {
      * anything. A self-updater nobody taps is a self-updater that does not
      * deliver fixes, and the release feed costs one small request.
      */
-    fun checkOnLaunch(context: Context, prefs: app.slurp.data.Prefs) {
+    fun checkOnLaunch(context: Context, prefs: Prefs) {
         val since = System.currentTimeMillis() - prefs.lastUpdateCheck
         if (prefs.lastUpdateCheck != 0L && since < LAUNCH_CHECK_INTERVAL_MS) return
-        prefs.lastUpdateCheck = System.currentTimeMillis()
-        check(context, announce = false)
+        check(context, announce = false, record = prefs)
     }
 
     private const val LAUNCH_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L

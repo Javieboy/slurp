@@ -36,6 +36,9 @@ object FormatPolicy {
         Quality.BEST -> "bv*+ba/b"
         Quality.P1080 -> "bv*[height<=?1080]+ba/b[height<=?1080]/bv*+ba/b"
         Quality.P720 -> "bv*[height<=?720]+ba/b[height<=?720]/bv*+ba/b"
+        // Unreachable — [apply] returns before this for audio. Present only to
+        // keep the `when` exhaustive, so audio's real selector is the one in
+        // [apply] and editing this line changes nothing.
         Quality.AUDIO -> "ba/b"
     }
 

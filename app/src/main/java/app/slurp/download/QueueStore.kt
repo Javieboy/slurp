@@ -28,21 +28,59 @@ object QueueStore {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val serializer = ListSerializer(Job.serializer())
 
+    /**
+     * Terminal jobs are kept so a finished list survives a restart, but only
+     * this many. Nothing removes them except the Clear button, so without a cap
+     * `queue.json` grows for the life of the install and every save
+     * re-serialises the lot. The cap applies to what is *written*: cards do not
+     * vanish from under someone mid-session, they just do not all come back.
+     */
+    private const val MAX_TERMINAL = 50
+
+    /**
+     * The last text written, so an unchanged queue is not rewritten.
+     *
+     * Progress, ETA and the status line are @Transient on [Job], which means
+     * the ten-a-second progress updates during a download now encode to a file
+     * identical to the one already on disk. Encoding is cheap; the write and
+     * the rename are not. Touched only from the single collector in
+     * `DownloadQueue.attach`, so it needs no lock.
+     */
+    private var lastWritten: String? = null
+
     private fun file(context: Context) = File(context.filesDir, FILE)
 
     fun save(context: Context, jobs: List<Job>) {
         runCatching {
+            val text = json.encodeToString(serializer, capped(jobs))
+            if (text == lastWritten) return@runCatching
+
             // Write to a temp file and rename. A process killed mid-write would
             // otherwise leave truncated JSON, and the next launch would drop the
             // whole queue rather than one job.
             val target = file(context)
             val tmp = File(target.parentFile, "$FILE.tmp")
-            tmp.writeText(json.encodeToString(serializer, jobs))
+            tmp.writeText(text)
             if (!tmp.renameTo(target)) {
                 target.writeText(tmp.readText())
                 tmp.delete()
             }
+            lastWritten = text
         }.onFailure { Log.w(TAG, "could not save the queue", it) }
+    }
+
+    /** Drops the oldest terminal jobs past [MAX_TERMINAL], keeping list order. */
+    private fun capped(jobs: List<Job>): List<Job> {
+        var excess = jobs.count { it.state.isTerminal } - MAX_TERMINAL
+        if (excess <= 0) return jobs
+        return jobs.filter { job ->
+            if (job.state.isTerminal && excess > 0) {
+                excess--
+                false
+            } else {
+                true
+            }
+        }
     }
 
     /**
@@ -99,5 +137,6 @@ object QueueStore {
 
     fun clear(context: Context) {
         runCatching { file(context).delete() }
+        lastWritten = null
     }
 }

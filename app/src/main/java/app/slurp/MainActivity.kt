@@ -32,6 +32,10 @@ class MainActivity : ComponentActivity() {
 
         prefs = Prefs(this)
         DownloadQueue.attach(this)
+        // Anything restored from disk starts draining here rather than in
+        // Application.onCreate, because starting the foreground service that
+        // keeps those downloads alive is only allowed while an activity is.
+        DownloadQueue.resume()
         askForNotifications()
         handleIntent(intent)
 
@@ -62,9 +66,13 @@ class MainActivity : ComponentActivity() {
         if (intent.type != "text/plain") return
 
         val shared = intent.getStringExtra(Intent.EXTRA_TEXT)
-        val url = UrlSniffer.firstUrl(shared)
+        // Every link, not just the first. A paste has always queued all of them
+        // — DownloadQueue.submit runs the same sniffer — and sharing is the
+        // gesture the app is built around, so it should not be the lesser of
+        // the two paths. Apps that share a thread or an album send several.
+        val urls = UrlSniffer.allUrls(shared)
 
-        if (url == null) {
+        if (urls.isEmpty()) {
             Toast.makeText(this, "No link in that share", Toast.LENGTH_SHORT).show()
             return
         }
@@ -72,11 +80,16 @@ class MainActivity : ComponentActivity() {
         // Consume the extra so a configuration change does not re-queue it.
         intent.removeExtra(Intent.EXTRA_TEXT)
 
+        // Hand on the extracted links rather than the original caption, so
+        // submit() parses exactly what was validated here.
+        val links = urls.joinToString("\n")
+
         if (prefs.oneTap) {
-            DownloadQueue.submit(url, prefs.quality)
-            Toast.makeText(this, "Queued", Toast.LENGTH_SHORT).show()
+            DownloadQueue.submit(links, prefs.quality)
+            val message = if (urls.size > 1) "Queued ${urls.size} links" else "Queued"
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         } else {
-            pendingLink = url
+            pendingLink = links
         }
     }
 

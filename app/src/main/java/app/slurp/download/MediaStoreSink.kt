@@ -43,8 +43,14 @@ object MediaStoreSink {
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
 
+        // Naming only the likeliest cause was actively misleading: a folder name
+        // MediaStore will not file under — a dot segment, a stray control
+        // character — fails here too, at the end of a download that otherwise
+        // worked, and "storage full?" sends people to clear space that was
+        // never the problem. Prefs.sanitiseFolder now stops most of those at the
+        // source; the message no longer guesses about the rest.
         val uri = resolver.insert(collection, values)
-            ?: error("MediaStore refused the file (storage full?)")
+            ?: error("MediaStore would not file this under “$relative” (folder name, or no space left)")
 
         try {
             resolver.openOutputStream(uri)?.use { out ->

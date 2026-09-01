@@ -2,6 +2,7 @@ package app.slurp.model
 
 import app.slurp.core.Site
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 enum class JobState {
     CHECKING, QUEUED, DOWNLOADING, SAVING, DONE, FAILED, CANCELLED;
@@ -22,11 +23,20 @@ data class Job(
     val site: Site,
     val quality: Quality,
     val state: JobState = JobState.QUEUED,
-    /** 0f..1f, or -1f when yt-dlp has not reported a percentage yet. */
-    val progress: Float = -1f,
-    val etaSeconds: Long = -1,
+    /**
+     * 0f..1f, or -1f when yt-dlp has not reported a percentage yet.
+     *
+     * Transient, along with [etaSeconds] and [status]. These three change about
+     * ten times a second for the whole of a download, and the queue is saved
+     * from a flow of every change — persisting them meant rewriting the entire
+     * file continuously while nothing durable had moved. Nothing is lost:
+     * `QueueStore.load` resets all three anyway, because a restored job has no
+     * running process to report progress for.
+     */
+    @Transient val progress: Float = -1f,
+    @Transient val etaSeconds: Long = -1,
     /** Last line of yt-dlp output, shown small under the title while running. */
-    val status: String = "",
+    @Transient val status: String = "",
     val savedAs: String? = null,
     /** MediaStore URI of the finished file, for Play and Open folder. */
     val savedUri: String? = null,

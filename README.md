@@ -60,11 +60,13 @@ something stops working.
 | yt-dlp wrapper — probe, download, engine update | `engine/Ytdlp.kt` |
 | Quality → yt-dlp format selectors | `engine/FormatPolicy.kt` |
 | Queue, retries, stale-extractor recovery | `download/DownloadQueue.kt` |
+| Keeping the queue across process death | `download/QueueStore.kt` |
 | Staying alive in the background | `download/DownloadService.kt` |
 | Landing files in the gallery | `download/MediaStoreSink.kt` |
 | Updating the app itself, from `releases.atom` | `update/AppUpdater.kt` |
 | Settings, and where downloads land | `ui/SettingsDialog.kt`, `data/Prefs.kt` |
 | Play, and the best-effort Folder button | `ui/OpenFile.kt` |
+| Job-card posters | `ui/Thumbnails.kt` |
 | UI | `ui/HomeScreen.kt` |
 
 A download is two steps. First a **probe** (`--dump-single-json
@@ -270,10 +272,11 @@ where Google froze that artifact.
 
 ## Status
 
-**Builds and ships.** `./gradlew assembleRelease` is green, `UrlSniffer` has unit
-tests, and v1.3.1 was built, signed and published by CI from a pushed tag. The
-published APK was downloaded back off the release and its certificate checked,
-so the signing path is confirmed end to end rather than assumed.
+**Builds and ships.** `./gradlew assembleRelease` is green, `UrlSniffer` and
+`Prefs.sanitiseFolder` have unit tests, and v1.3.1 was built, signed and
+published by CI from a pushed tag. The published APK was downloaded back off the
+release and its certificate checked, so the signing path is confirmed end to end
+rather than assumed. `versionName` is now 1.4.1.
 
 **Runs, and downloads.** Confirmed on a real phone across several sessions:
 engine init and the Python unpack from the APK, probe, format selection,
@@ -299,6 +302,17 @@ pasted, and sharing is the app's headline gesture — plus playlists end to end,
 cancel and retry, the automatic stale-extractor recovery (which needs a genuinely
 broken site to trigger), and **Update app** performing a real in-place install.
 
+**The 1.4.0 features were never exercised either, and one of them did not work.**
+A read-through after the fact found that `DownloadQueue.runJob` never initialised
+the engine. Only the probe did, and a queue restored from disk goes straight to
+the pump without probing — so it raced the Python unpack that
+`SlurpApp.onCreate` kicks off in parallel, lost, and every restored job failed
+instantly with `instance not initialized`. Restored jobs also drained with no
+foreground service, because `attach()` runs from `Application.onCreate` where
+starting one is not allowed. Both are fixed; neither has run on a device. That
+the persistent queue could ship and be released without once being restored is
+the thing worth remembering here.
+
 ---
 
 ## Scope
@@ -316,8 +330,11 @@ file to find them.
 
 - **No cookie import**, so anything needing a login fails — private Instagram
   and most of Facebook. The single biggest functional gap.
-- **The queue is in memory.** Killing the app loses whatever is still queued,
-  which matters most for a long playlist.
+- **The queue survives being killed, but a job caught mid-save does not
+  resume by itself.** Everything queued is written to disk and picked back up
+  next launch. The one exception is a download killed during the MediaStore
+  write — there is no way to tell from the outside whether the file landed, so
+  that job stops and asks, rather than risking a second copy in your gallery.
 - **Downloads run one at a time**, deliberately: these sites rate-limit hard
   and parallel requests earn a block that looks like a broken extractor.
 - **A VPN can cause `HTTP Error 403` on YouTube.** The site serves the page to
@@ -346,18 +363,18 @@ upstream for youtubedl-android, yt-dlp, ffmpeg and aria2c.
 
 ## Ideas
 
-- **Persist the queue**, so it survives the process being killed, and keep a
-  history of finished downloads. The oldest gap in the project, and the one that
-  now matters most: a long playlist queues dozens of jobs that drain one at a
-  time, and losing the app loses all of them.
 - **Cookie import**, for links that need a login. The single biggest functional
   gap — private Instagram and most of Facebook cannot work without it. Note it
   changes slurp's security posture: `Prefs` currently holds nothing secret, and
   that would stop being true.
-- Check for updates on a schedule rather than on demand, for both the app and
-  the engine. `Prefs.lastEngineUpdate` is already read by the recovery path.
-- Show a thumbnail on the job card; the probe already returns the URL, and it is
-  currently parsed and then dropped.
+- Check the *engine* for updates on a schedule. The app already checks itself
+  once a day at launch, silently (`AppUpdater.checkOnLaunch`); yt-dlp is still
+  only updated on demand, or by the queue's automatic recovery after a failure
+  that looks like a stale extractor.
+- A real download history, with a cap and a way to browse it. Finished jobs
+  currently persist as queue entries — `QueueStore` keeps the last 50 so the
+  file cannot grow forever — which is a side effect of the queue rather than a
+  feature anyone designed.
 - Run downloads from *different* sites in parallel. The one-at-a-time rule is
   about per-host rate limiting, so it does not need to be global.
 - Subtitle download for YouTube.

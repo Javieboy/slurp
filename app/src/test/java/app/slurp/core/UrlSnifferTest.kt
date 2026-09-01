@@ -173,4 +173,42 @@ class UrlSnifferTest {
         assertFalse(UrlSniffer.namesOneVideoInsideAPlaylist("https://vt.tiktok.com/ZSabcdef/"))
         assertFalse(UrlSniffer.namesOneVideoInsideAPlaylist("https://soundcloud.com/artist/sets/an-album"))
     }
+
+    @Test
+    fun `shorts, live and embed inside a playlist are one video too`() {
+        // These three carry a list= exactly like /watch does, but name no `v=`
+        // parameter, so they used to fall through and expand the whole list.
+        assertTrue(UrlSniffer.namesOneVideoInsideAPlaylist(
+            "https://www.youtube.com/shorts/abc123?list=PLxyz"))
+        assertTrue(UrlSniffer.namesOneVideoInsideAPlaylist(
+            "https://www.youtube.com/live/abc123?list=PLxyz"))
+        assertTrue(UrlSniffer.namesOneVideoInsideAPlaylist(
+            "https://www.youtube.com/embed/abc123?list=PLxyz"))
+    }
+
+    @Test
+    fun `youtube music counts as youtube`() {
+        assertTrue(UrlSniffer.namesOneVideoInsideAPlaylist(
+            "https://music.youtube.com/watch?v=abc123&list=OLAK5uy_abc"))
+    }
+
+    @Test
+    fun `the rule does not apply off youtube`() {
+        // It was measured on YouTube and nowhere else, and the checks are too
+        // loose to run against the other ~1800 sites yt-dlp handles. Answering
+        // false here means expanding, which is the recoverable mistake; a false
+        // true silently discards every entry but the first.
+        assertFalse(UrlSniffer.namesOneVideoInsideAPlaylist(
+            "https://example.com/album?list=1&v=2"))
+        assertFalse(UrlSniffer.namesOneVideoInsideAPlaylist(
+            "https://bandcamp.com/x?tracklist=1&v=2"))
+    }
+
+    @Test
+    fun `list must be a real query parameter`() {
+        // "checklist=" and "waitlist=" both contain "list=". The unanchored
+        // substring match used to accept them.
+        assertFalse(UrlSniffer.namesOneVideoInsideAPlaylist(
+            "https://www.youtube.com/watch?v=abc123&checklist=1"))
+    }
 }

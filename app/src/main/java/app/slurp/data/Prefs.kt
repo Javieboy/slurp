@@ -47,7 +47,10 @@ class Prefs(context: Context) {
      * the collection root.
      */
     var folderName: String
-        get() = sp.getString(KEY_FOLDER, null)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_FOLDER
+        // Sanitised on the way out as well as in. The setter has not always
+        // cleaned as thoroughly as it does now, and a value stored by an older
+        // build must not be able to break every save.
+        get() = sanitiseFolder(sp.getString(KEY_FOLDER, null).orEmpty())
         set(value) {
             val cleaned = sanitiseFolder(value)
             sp.edit().putString(KEY_FOLDER, cleaned).apply()
@@ -71,12 +74,30 @@ class Prefs(context: Context) {
          * MediaStore rejects a RELATIVE_PATH containing path separators it did
          * not expect, and silently mangles some punctuation, so the name is
          * reduced to something that always survives the insert.
+         *
+         * Three cases the first version of this missed, all of them reachable
+         * by typing into the Settings field:
+         *
+         * - `..` and `.` came through untouched. A dot segment in a
+         *   RELATIVE_PATH is refused outright, and the refusal lands at the
+         *   *end* of a finished download, reported as though the disk were
+         *   full.
+         * - A leading dot (`.slurp`) inserts fine and then hides the folder
+         *   from the gallery and the media scanner, so downloads appear to
+         *   succeed and are nowhere to be found. That is worse than any name
+         *   substituted for it.
+         * - Control characters survived, and a long-press paste carries a
+         *   newline more often than you would think.
          */
         fun sanitiseFolder(raw: String): String =
-            raw.trim()
-                .replace(Regex("""[\\/:*?"<>|]"""), "")
+            raw.replace(Regex("""[\\/:*?"<>|]"""), "")
+                .replace(Regex("""\p{Cntrl}"""), "")
+                // Leading and trailing dots and spaces, both before and after
+                // the truncation — cutting at 40 can land on one.
                 .trim()
+                .trim('.', ' ')
                 .take(40)
+                .trim('.', ' ')
                 .ifEmpty { DEFAULT_FOLDER }
 
         private const val KEY_QUALITY = "quality"

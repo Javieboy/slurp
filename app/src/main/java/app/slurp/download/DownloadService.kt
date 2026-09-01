@@ -32,6 +32,18 @@ class DownloadService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /**
+     * The one collector on the queue.
+     *
+     * `DownloadQueue.wakeService()` fires on every submit and every retry, so a
+     * service that is already running receives another start command each time.
+     * This used to launch a fresh collector per command: several coroutines
+     * writing the same notification id, and all of them racing to `stopSelf()`
+     * when the queue drained. onStartCommand runs on the main thread, which is
+     * this scope's dispatcher, so the field needs no synchronisation.
+     */
+    private var watcher: kotlinx.coroutines.Job? = null
+
     override fun onBind(intent: Intent?) = null
 
     override fun onCreate() {
@@ -49,7 +61,9 @@ class DownloadService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
 
-        scope.launch {
+        if (watcher?.isActive == true) return START_NOT_STICKY
+
+        watcher = scope.launch {
             DownloadQueue.jobs.collectLatest { jobs ->
                 val active = jobs.filterNot { it.state.isTerminal }
 

@@ -112,7 +112,7 @@ fun SettingsDialog(prefs: Prefs, onDismiss: () -> Unit) {
                 // report needs.
                 HorizontalDivider()
                 Text(
-                    "slurp ${AppUpdater.installedVersion(LocalContext.current)}",
+                    "slurp ${AppUpdater.installedVersion(LocalContext.current) ?: "unknown version"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

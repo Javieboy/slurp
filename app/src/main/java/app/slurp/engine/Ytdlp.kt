@@ -3,6 +3,7 @@ package app.slurp.engine
 import android.content.Context
 import android.util.Log
 import app.slurp.core.UrlSniffer
+import app.slurp.data.Prefs
 import app.slurp.model.Job
 import app.slurp.model.ProbeItem
 import app.slurp.model.ProbeResult
@@ -118,7 +119,8 @@ object Ytdlp {
     }
 
     private fun toResult(requestedUrl: String, root: ProbeRoot): ProbeResult {
-        val entries = root.entries.orEmpty().mapNotNull { entry ->
+        val listed = root.entries.orEmpty()
+        val entries = listed.mapNotNull { entry ->
             val entryUrl = entry.resolvedUrl() ?: return@mapNotNull null
             ProbeItem(
                 url = entryUrl,
@@ -136,7 +138,16 @@ object Ytdlp {
                 title = root.title?.takeIf { it.isNotBlank() } ?: "Playlist",
                 isPlaylist = true,
                 items = entries,
+                skipped = listed.size - entries.size,
             )
+        }
+
+        // A real playlist none of whose entries yielded a link. Falling through
+        // would build one job out of `webpage_url` — the playlist page — and
+        // download it with --no-playlist: video 1 of 50, with nothing to say the
+        // other 49 ever existed. Fail loudly instead.
+        if (listed.size > 1) {
+            error("yt-dlp listed ${listed.size} videos but gave no usable link for them")
         }
 
         val single = entries.firstOrNull() ?: ProbeItem(
@@ -215,7 +226,20 @@ object Ytdlp {
         return updateLock.withLock {
             _updating.value = true
             try {
-                updateEngine(app)
+                updateEngine(app).also {
+                    // Recorded here, by whoever actually ran the update, rather
+                    // than by each caller. The menu item used to record it from
+                    // the composition when the result arrived — but
+                    // [updateResults] has no replay, so an update that finished
+                    // after the activity had gone dropped its result and the
+                    // timestamp was never written, leaving the queue's six-hour
+                    // recovery cooldown believing no update had ever run.
+                    //
+                    // Written on failure too: the cooldown exists to stop twenty
+                    // failing jobs firing twenty updates, and a failed attempt
+                    // costs the same network round trip as a successful one.
+                    Prefs(app).lastEngineUpdate = System.currentTimeMillis()
+                }
             } finally {
                 _updating.value = false
             }

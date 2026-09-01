@@ -19,7 +19,8 @@ import java.net.URL
  * A very small thumbnail loader.
  *
  * Coil would do this in one line, but the project keeps its dependency list
- * short on purpose — the APK is already ~80 MB from the Python runtime — and a
+ * short on purpose — the APK is already ~85 MB per ABI split from the Python
+ * runtime, ~190 MB universal — and a
  * card thumbnail needs almost none of what an image library provides. No disk
  * cache, no transformations, no placeholders beyond "nothing yet".
  *

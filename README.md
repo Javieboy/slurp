@@ -137,6 +137,17 @@ signs, verifies and publishes; the tag has to match `versionName` in
 git tag v1.4.0 && git push origin v1.4.0
 ```
 
+**Or, with no git client: Actions → release → Run workflow**, and type the tag.
+Same job, same gates — the version check still refuses a tag that disagrees
+with `versionName`, and `gh release create --target "$GITHUB_SHA"` creates the
+tag on the commit the run actually built. This exists because "any machine can
+ship an update" quietly assumed a machine with git on it, and slurp gets
+developed from a phone as often as not. A browser is enough.
+
+Note the two doors differ in *what gets tagged*. A tag push releases whatever
+you tagged; a dispatch releases the head of the branch you dispatch from, and
+tags that. Dispatch from `main` and make sure `main` is what you mean to ship.
+
 It publishes `slurp-arm64-v8a-recommended.apk` and `slurp-universal-fallback.apk`.
 Those exact names matter: `AppUpdater` derives its download URL from them, device
 ABI first and universal as the fallback. It also still recognises the older

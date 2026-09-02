@@ -86,7 +86,14 @@ fun SettingsDialog(prefs: Prefs, onDismiss: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "Audio always goes to Music, which is where players look for it.",
+                    if (root == VideoRoot.DOWNLOAD) {
+                        "Audio always goes to Music, which is where players look " +
+                            "for it. Download is filed with your downloads rather " +
+                            "than your gallery, so video there shows up in Files, " +
+                            "not Photos."
+                    } else {
+                        "Audio always goes to Music, which is where players look for it."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

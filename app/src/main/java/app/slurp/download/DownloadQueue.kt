@@ -206,8 +206,22 @@ object DownloadQueue {
             // Killing the probe process makes it throw. That is a cancellation,
             // not a failure, and overwriting the card would hide the difference.
             if (stateOf(placeholder.id) == JobState.CANCELLED) return
+            val described = Ytdlp.describe(e)
+
+            // A probe dies on a stale extractor just as a download does, and
+            // for most sites this is where it happens — the probe is the first
+            // thing to touch the extractor at all. Give it the same one free
+            // engine update the download path has always had, then probe again.
+            if (!placeholder.engineRetried && updateEngineFor(placeholder.id, described)) {
+                patch(placeholder.id) {
+                    it.copy(status = "Checking link…", error = null, hint = null)
+                }
+                // engineRetried on the copy is what bounds this to one retry.
+                admit(placeholder.copy(engineRetried = true))
+                return
+            }
+
             patch(placeholder.id) {
-                val described = Ytdlp.describe(e)
                 it.copy(
                     state = JobState.FAILED,
                     status = "",
@@ -342,7 +356,18 @@ object DownloadQueue {
         } catch (e: Throwable) {
             if (stateOf(job.id) != JobState.CANCELLED) {
                 val described = Ytdlp.describe(e)
-                if (!recoverByUpdatingEngine(job, described)) {
+                if (!job.engineRetried && updateEngineFor(job.id, described)) {
+                    patch(job.id) {
+                        it.copy(
+                            state = JobState.QUEUED,
+                            engineRetried = true,
+                            status = "Retrying after engine update",
+                            error = null,
+                            hint = null,
+                            progress = -1f,
+                        )
+                    }
+                } else {
                     patch(job.id) {
                         it.copy(
                             state = JobState.FAILED,
@@ -359,30 +384,39 @@ object DownloadQueue {
     }
 
     /**
-     * Tries to rescue a failed download by pulling a newer yt-dlp, then puts the
-     * job back on the queue.
+     * Pulls a newer yt-dlp when [error] looks like something one would fix, and
+     * reports whether the engine actually changed. The caller decides what to
+     * retry.
      *
-     * Site breakage is the ordinary reason a download dies, and upstream
-     * usually ships a fix within days — so "download failed" is very often
-     * really "your extractor is old". Reporting that and leaving the user to go
-     * find the menu item is a worse answer than simply doing it.
+     * Site breakage is the ordinary reason a job dies, and upstream usually
+     * ships a fix within days — so "that failed" is very often really "your
+     * extractor is old". Reporting that and leaving the user to go find the
+     * menu item is a worse answer than simply doing it.
      *
-     * Three guards stop it becoming a nuisance: only failures that look like an
-     * extractor problem qualify, each job gets exactly one attempt
-     * ([Job.engineRetried]), and an update only runs if one has not run
-     * recently — so twenty failing jobs cost one update, not twenty.
+     * **Both failure paths call this now.** It used to be reachable only from
+     * [runJob], which meant a *probe* that died on a stale extractor never
+     * triggered it — and the probe is where most sites fail, because it is the
+     * first thing that touches the extractor. YouTube was the exception that
+     * hid the gap for months: its signature failure is a 403 on the media
+     * fetch, *after* the probe has succeeded, so YouTube recovered
+     * automatically and nothing else ever did. A TikTok link failing with
+     * "Unable to extract universal data for rehydration" matched
+     * [Ytdlp.looksLikeStaleExtractor] perfectly and was simply never asked.
      *
-     * @return true when the job has been requeued and must not be marked failed.
+     * Two guards stop it becoming a nuisance: only failures that look like an
+     * extractor problem qualify, and an update only runs if one has not run
+     * recently — so twenty failing jobs cost one update, not twenty. The third
+     * guard, one attempt per job, lives at the call sites, which is where
+     * [Job.engineRetried] can actually be set.
      */
-    private suspend fun recoverByUpdatingEngine(job: Job, error: String): Boolean {
-        if (job.engineRetried) return false
+    private suspend fun updateEngineFor(jobId: String, error: String): Boolean {
         if (!Ytdlp.looksLikeStaleExtractor(error)) return false
 
         val prefs = prefs()
         val sinceLast = System.currentTimeMillis() - prefs.lastEngineUpdate
         if (prefs.lastEngineUpdate != 0L && sinceLast < ENGINE_UPDATE_COOLDOWN_MS) return false
 
-        patch(job.id) {
+        patch(jobId) {
             it.copy(status = "Might be a stale extractor — updating engine…", progress = -1f)
         }
 
@@ -401,16 +435,6 @@ object DownloadQueue {
         }
 
         emit("$result — retrying")
-        patch(job.id) {
-            it.copy(
-                state = JobState.QUEUED,
-                engineRetried = true,
-                status = "Retrying after engine update",
-                error = null,
-                hint = null,
-                progress = -1f,
-            )
-        }
         return true
     }
 

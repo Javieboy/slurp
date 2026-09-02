@@ -287,7 +287,7 @@ where Google froze that artifact.
 `Prefs.sanitiseFolder` have unit tests, and v1.3.1 was built, signed and
 published by CI from a pushed tag. The published APK was downloaded back off the
 release and its certificate checked, so the signing path is confirmed end to end
-rather than assumed. `versionName` is now 1.4.2.
+rather than assumed. `versionName` is now 1.4.3.
 
 **Runs, and downloads.** Confirmed on a real phone across several sessions:
 engine init and the Python unpack from the APK, probe, format selection,

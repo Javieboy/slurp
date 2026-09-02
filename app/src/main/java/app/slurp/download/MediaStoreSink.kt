@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.provider.MediaStore
 import app.slurp.data.Prefs
+import app.slurp.data.VideoRoot
 import java.io.File
 
 /**
@@ -23,15 +24,25 @@ object MediaStoreSink {
 
     fun publish(context: Context, source: File, isAudio: Boolean, prefs: Prefs): Saved {
         val resolver = context.contentResolver
-        val collection = if (isAudio) {
-            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        } else {
-            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        }
 
         // Audio always goes to Music — that is where players and the system
         // media scanner look for it. Only video's collection is configurable.
         val root = if (isAudio) "Music" else prefs.videoRoot.directory
+
+        // Which collection can hold this decides more than it looks like.
+        // MediaStore validates RELATIVE_PATH against the collection, and the
+        // Video collection accepts only DCIM, Movies and Pictures — a video
+        // filed under Download/ is refused outright with "Primary directory
+        // Download not allowed", after the whole file has downloaded. The
+        // Downloads collection is the one that owns that directory, so video
+        // headed there has to go through it instead. Settings offered Download
+        // as a choice for months and it could never once have worked.
+        val collection = when {
+            isAudio -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            prefs.videoRoot == VideoRoot.DOWNLOAD ->
+                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            else -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        }
         val relative = "$root/${prefs.folderName}"
 
         val values = ContentValues().apply {

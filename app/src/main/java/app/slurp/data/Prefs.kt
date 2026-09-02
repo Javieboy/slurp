@@ -109,7 +109,16 @@ class Prefs(context: Context) {
     }
 }
 
-/** The standard collections MediaStore will file a video under. */
+/**
+ * Where video lands.
+ *
+ * [MOVIES] and [DCIM] are directories the MediaStore *Video* collection
+ * accepts (so is Pictures, which is not offered because filing video there is
+ * odd). [DOWNLOAD] is not — it is refused by that collection — so
+ * `MediaStoreSink` files it through the Downloads collection instead. The
+ * consequence is visible to the user: video in Download shows up in Files
+ * rather than in the gallery, which is why the default is Movies.
+ */
 enum class VideoRoot(val label: String, val directory: String) {
     MOVIES("Movies", "Movies"),
     DCIM("DCIM", "DCIM"),

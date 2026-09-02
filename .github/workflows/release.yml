@@ -3,9 +3,22 @@ name: release
 # Cutting a release is pushing a tag. Everything below is what used to be a
 # manual build on one specific laptop, which is exactly the fragility this
 # replaces: with the key in secrets, any machine can ship an update.
+#
+# "Any machine" turned out to overstate it, because pushing a tag still needs
+# a git client, and this project is developed from a phone as often as not.
+# So there is a second door: Actions -> release -> Run workflow, type the tag.
+# It is the same job either way -- the version gate below still refuses a tag
+# that disagrees with versionName, and `gh release create` creates the tag
+# itself at publish time, from the commit that was actually built.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release, e.g. v1.4.2 (must match versionName)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -28,6 +41,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # A tag push carries it in the ref; a dispatch carries it as an input.
+      # Everything downstream reads $TAG and does not care which.
+      - name: Resolve the tag
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::Tag must look like v1.2.3 (got '$TAG')"; exit 1;;
+          esac
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "releasing $TAG from $GITHUB_SHA"
 
       # Fail here rather than three steps later with a confusing Gradle error.
       # Without a real key the build would silently fall back to the runner's
@@ -65,11 +90,11 @@ jobs:
       # mismatch leaves every user with an update prompt that never goes away.
       - name: Tag must match versionName
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
-          echo "tag=$TAG versionName=$NAME"
-          if [ "$TAG" != "$NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $NAME in app/build.gradle.kts"
+          echo "tag=$VERSION versionName=$NAME"
+          if [ "$VERSION" != "$NAME" ]; then
+            echo "::error::Tag $TAG does not match versionName $NAME in app/build.gradle.kts"
             exit 1
           fi
 
@@ -144,7 +169,7 @@ jobs:
           install. It is roughly 190 MB because it carries a separate Python
           runtime for every CPU type, and you need exactly one of them.
 
-          Commits in this release: https://github.com/Javieboy/slurp/commits/$GITHUB_REF_NAME
+          Commits in this release: https://github.com/Javieboy/slurp/commits/$TAG
           EOF
           ASSETS="app/build/outputs/apk/release/slurp-arm64-v8a-recommended.apk
           app/build/outputs/apk/release/slurp-universal-fallback.apk"
@@ -154,13 +179,17 @@ jobs:
           # assets to it is the right move there — `create` would just abort.
           # Checked explicitly rather than with `create || upload`, so a real
           # failure (auth, network) still fails instead of being papered over.
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+          if gh release view "$TAG" > /dev/null 2>&1; then
             echo "release exists; attaching assets to it"
-            gh release upload "$GITHUB_REF_NAME" --clobber $ASSETS
-            gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/notes.md
+            gh release upload "$TAG" --clobber $ASSETS
+            gh release edit "$TAG" --notes-file /tmp/notes.md
           else
-            gh release create "$GITHUB_REF_NAME" \
-              --title "$GITHUB_REF_NAME" \
+            # --target is what lets a dispatch work: when the tag does not
+            # exist yet, GitHub creates it here, on the exact commit this run
+            # built rather than on whatever the default branch has drifted to.
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
               --notes-file /tmp/notes.md \
               $ASSETS
           fi

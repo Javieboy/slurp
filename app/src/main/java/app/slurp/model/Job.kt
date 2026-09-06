@@ -48,7 +48,21 @@ data class Job(
     @Transient val etaSeconds: Long = -1,
     /** Last line of yt-dlp output, shown small under the title while running. */
     @Transient val status: String = "",
+    /**
+     * When the job was created, epoch millis. The list is newest first, and
+     * sorting on this rather than reversing the list is what keeps a playlist
+     * the right way up: every job in one batch shares a timestamp, and a stable
+     * sort leaves 1/12 above 2/12 while still floating the whole batch above
+     * everything older.
+     *
+     * The queue itself must stay in insertion order — the pump takes the first
+     * QUEUED job it finds, so reversing the real list would download playlists
+     * backwards.
+     */
+    val createdAt: Long = System.currentTimeMillis(),
     val savedAs: String? = null,
+    /** How many files this job produced. More than one only for gallery-dl carousels. */
+    val savedCount: Int = 1,
     /** MediaStore URI of the finished file, for Play and Open folder. */
     val savedUri: String? = null,
     /** Where it landed, e.g. "Movies/slurp" — shown when there is no file browser to open. */

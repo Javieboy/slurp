@@ -290,8 +290,13 @@ fun HomeScreen(
             if (jobs.isEmpty()) {
                 EmptyState()
             } else {
+                // Newest first. Sorted rather than reversed so a playlist keeps
+                // its own order inside the batch — see Job.createdAt — and the
+                // queue itself stays in insertion order, because the pump takes
+                // the first QUEUED job it finds.
+                val newestFirst = remember(jobs) { jobs.sortedByDescending { it.createdAt } }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(jobs, key = { it.id }) { job ->
+                    items(newestFirst, key = { it.id }) { job ->
                         JobCard(
                             job = job,
                             onPlay = {
@@ -406,7 +411,11 @@ private fun JobCard(
                     Text(
                         job.title,
                         style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
+                        // Until a probe returns a title, the title *is* the
+                        // URL. Two wrapped lines of query string tells nobody
+                        // anything, and on a failed card the error underneath
+                        // is the part worth reading.
+                        maxLines = if (job.title == job.url) 1 else 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -478,7 +487,14 @@ private fun JobCard(
 @Composable
 private fun SubLine(job: Job) {
     val text = when (job.state) {
-        JobState.DONE -> "Saved · ${job.savedAs.orEmpty()}"
+        // Where it went, not what it is called. The filename is the sanitised
+        // title with the id on the end, so printing it here restated the line
+        // directly above it — two long wrapped lines of the same words, which
+        // is most of why a finished card looked so heavy.
+        JobState.DONE -> when {
+            job.savedCount > 1 -> "Saved ${job.savedCount} files · ${job.savedIn.orEmpty()}"
+            else -> "Saved · ${job.savedIn.orEmpty()}"
+        }
         JobState.FAILED -> job.error ?: "Failed"
         JobState.CANCELLED -> "Cancelled"
         JobState.QUEUED -> "Queued"

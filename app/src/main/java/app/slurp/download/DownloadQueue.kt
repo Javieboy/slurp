@@ -403,11 +403,8 @@ object DownloadQueue {
             patch(job.id) {
                 it.copy(
                     state = JobState.DONE,
-                    savedAs = if (published.size > 1) {
-                        "${saved.name}  (+${published.size - 1} more)"
-                    } else {
-                        saved.name
-                    },
+                    savedAs = saved.name,
+                    savedCount = published.size,
                     savedUri = saved.uri,
                     savedIn = saved.location,
                     status = "",

@@ -25,9 +25,20 @@ object MediaStoreSink {
     fun publish(context: Context, source: File, isAudio: Boolean, prefs: Prefs): Saved {
         val resolver = context.contentResolver
 
-        // Audio always goes to Music — that is where players and the system
-        // media scanner look for it. Only video's collection is configurable.
-        val root = if (isAudio) "Music" else prefs.videoRoot.directory
+        // Decided from the file itself rather than from what was asked for.
+        // gallery-dl returns whatever the post actually held, so one link can
+        // produce images and video together and each has to be filed where its
+        // own kind belongs.
+        val kind = kindOf(source, isAudio)
+
+        // Audio always goes to Music and images to Pictures — that is where
+        // players, galleries and the media scanner look. Only video's
+        // collection is configurable.
+        val root = when (kind) {
+            Kind.AUDIO -> "Music"
+            Kind.IMAGE -> "Pictures"
+            Kind.VIDEO -> prefs.videoRoot.directory
+        }
 
         // Which collection can hold this decides more than it looks like.
         // MediaStore validates RELATIVE_PATH against the collection, and the
@@ -38,7 +49,8 @@ object MediaStoreSink {
         // headed there has to go through it instead. Settings offered Download
         // as a choice for months and it could never once have worked.
         val collection = when {
-            isAudio -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            kind == Kind.AUDIO -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            kind == Kind.IMAGE -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             prefs.videoRoot == VideoRoot.DOWNLOAD ->
                 MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             else -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -47,7 +59,7 @@ object MediaStoreSink {
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, source.name)
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeOf(source, isAudio))
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeOf(source, kind))
             put(MediaStore.MediaColumns.RELATIVE_PATH, relative)
             // Hides the entry from other apps until the bytes are actually
             // there. Without this the gallery briefly shows a broken thumbnail.
@@ -91,7 +103,28 @@ object MediaStoreSink {
      * is always accepted, and Android sniffs the real format on playback
      * anyway.
      */
-    private fun mimeOf(file: File, isAudio: Boolean): String = when (file.extension.lowercase()) {
+    private enum class Kind { IMAGE, AUDIO, VIDEO }
+
+    /**
+     * The extension decides, not the caller's intent. A job asked for as video
+     * can come back as a JPEG when gallery-dl handled it, and filing that into
+     * the Video collection is refused — or worse, accepted, leaving a photo
+     * sitting in Movies pretending to be a film.
+     */
+    private fun kindOf(file: File, isAudio: Boolean): Kind = when (file.extension.lowercase()) {
+        "jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "avif" -> Kind.IMAGE
+        "m4a", "mp3", "aac", "opus", "ogg", "oga", "wav", "flac" -> Kind.AUDIO
+        else -> if (isAudio) Kind.AUDIO else Kind.VIDEO
+    }
+
+    private fun mimeOf(file: File, kind: Kind): String = when (file.extension.lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "bmp" -> "image/bmp"
+        "heic", "heif" -> "image/heif"
+        "avif" -> "image/avif"
         "mp4", "m4v" -> "video/mp4"
         "webm" -> "video/webm"
         "mkv" -> "video/x-matroska"
@@ -105,6 +138,10 @@ object MediaStoreSink {
         "opus", "ogg", "oga" -> "audio/ogg"
         "wav" -> "audio/wav"
         "flac" -> "audio/flac"
-        else -> if (isAudio) "audio/mp4" else "video/mp4"
+        else -> when (kind) {
+            Kind.IMAGE -> "image/jpeg"
+            Kind.AUDIO -> "audio/mp4"
+            Kind.VIDEO -> "video/mp4"
+        }
     }
 }

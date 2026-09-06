@@ -58,6 +58,8 @@ something stops working.
 | Pull a URL out of share-sheet noise | `core/UrlSniffer.kt` |
 | Site badge | `core/Site.kt` |
 | yt-dlp wrapper — probe, download, engine update | `engine/Ytdlp.kt` |
+| Driving the bundled Python for anything else | `engine/PythonRuntime.kt` |
+| Images, via gallery-dl fetched at runtime | `engine/GalleryDl.kt` |
 | Quality → yt-dlp format selectors | `engine/FormatPolicy.kt` |
 | Queue, retries, stale-extractor recovery | `download/DownloadQueue.kt` |
 | Keeping the queue across process death | `download/QueueStore.kt` |
@@ -287,7 +289,7 @@ where Google froze that artifact.
 `Prefs.sanitiseFolder` have unit tests, and v1.3.1 was built, signed and
 published by CI from a pushed tag. The published APK was downloaded back off the
 release and its certificate checked, so the signing path is confirmed end to end
-rather than assumed. `versionName` is now 1.4.3.
+rather than assumed. `versionName` is now 1.5.0.
 
 **Runs, and downloads.** Confirmed on a real phone across several sessions:
 engine init and the Python unpack from the APK, probe, format selection,
@@ -340,7 +342,15 @@ The things a new user hits first, collected so nobody has to read the whole
 file to find them.
 
 - **No cookie import**, so anything needing a login fails — private Instagram
-  and most of Facebook. The single biggest functional gap.
+  and most of Facebook. The single biggest functional gap, and it caps how far
+  image support gets too: most photo posts worth saving are behind a login.
+- **Images need one download first.** A link with no video in it is handed to
+  gallery-dl, which is fetched from PyPI on first use (~1.4 MB, once) rather
+  than shipped — see [License](#license) for why that is not optional. Offline
+  the very first time, that link fails; afterwards it is cached.
+- **Threads images are not supported.** gallery-dl has no Threads extractor, so
+  a Threads photo post fails where Instagram and X succeed. Threads *video*
+  still works through yt-dlp.
 - **The queue survives being killed, but a job caught mid-save does not
   resume by itself.** Everything queued is written to disk and picked back up
   next launch. The one exception is a download killed during the MediaStore
@@ -369,6 +379,20 @@ One consequence that outlives the licence file: distributing a binary owes the
 *corresponding source* for the bundled components, not only for slurp's own
 code. Publishing from this repo covers slurp; release notes need to link
 upstream for youtubedl-android, yt-dlp, ffmpeg and aria2c.
+
+**gallery-dl is deliberately not in that list, and must never join it.** The
+image engine is GPL-2.0-*only* — its per-file grant reads "version 2 as
+published by the Free Software Foundation", with no "or any later version", and
+PyPI records it as `GPL-2.0-only`. GPL-2.0-only and GPL-3.0 are incompatible,
+so an APK carrying both could not lawfully be distributed. slurp therefore
+ships **none** of it: the official wheels are fetched from PyPI onto the device
+on first use, unmodified, and what lands is byte-for-byte what upstream
+published. GPL obligations attach to distribution, and slurp does not
+distribute it.
+
+That is a licence constraint, not a packaging preference. Anyone tempted to
+vendor `gallery_dl` into `res/raw` to save a download should stop: it turns
+every release into a violation against gallery-dl's authors.
 
 ---
 

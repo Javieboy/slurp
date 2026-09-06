@@ -4,7 +4,9 @@ import android.content.Context
 import app.slurp.core.Site
 import app.slurp.core.UrlSniffer
 import app.slurp.data.Prefs
+import app.slurp.engine.GalleryDl
 import app.slurp.engine.Ytdlp
+import app.slurp.model.Engine
 import app.slurp.model.Job
 import app.slurp.model.JobState
 import app.slurp.model.Quality
@@ -208,6 +210,37 @@ object DownloadQueue {
             if (stateOf(placeholder.id) == JobState.CANCELLED) return
             val described = Ytdlp.describe(e)
 
+            // "There is no video in this post" is not breakage, it is scope: an
+            // Instagram photo or an X image tweet has nothing yt-dlp downloads,
+            // and no engine update will ever change that. Hand those to
+            // gallery-dl instead of failing. Checked before the stale-extractor
+            // path below, so an image link cannot spend the one engine update
+            // per six hours that a genuinely broken site needs.
+            if (GalleryDl.worthTrying(described)) {
+                patch(placeholder.id) { it.copy(status = "No video — trying images…") }
+                val problem = GalleryDl.ensureInstalled(appContext)
+                if (problem == null) {
+                    _jobs.update { current ->
+                        current.map {
+                            if (it.id == placeholder.id) {
+                                it.copy(
+                                    engine = Engine.GALLERYDL,
+                                    state = JobState.QUEUED,
+                                    status = "Queued as images",
+                                    error = null,
+                                    hint = null,
+                                )
+                            } else {
+                                it
+                            }
+                        }
+                    }
+                    startPump()
+                    return
+                }
+                emit(problem)
+            }
+
             // A probe dies on a stale extractor just as a download does, and
             // for most sites this is where it happens — the probe is the first
             // thing to touch the extractor at all. Give it the same one free
@@ -316,13 +349,34 @@ object DownloadQueue {
         val workDir = File(appContext.noBackupFilesDir, "work/${job.id}")
 
         try {
-            val file = Ytdlp.download(job, workDir) { progress, eta, line ->
-                patch(job.id) { current ->
-                    // A cancelled job can still receive a few trailing progress
-                    // lines before the process actually dies. Ignore them, or
-                    // the card flickers back to "downloading" after cancel.
-                    if (current.state != JobState.DOWNLOADING) current
-                    else current.copy(progress = progress, etaSeconds = eta, status = line.trim().take(140))
+            // A list, because gallery-dl has the case yt-dlp never does: one
+            // link, several files. A carousel post is one card and five images.
+            val files: List<File> = when (job.engine) {
+                Engine.YTDLP -> listOf(
+                    Ytdlp.download(job, workDir) { progress, eta, line ->
+                        patch(job.id) { current ->
+                            // A cancelled job can still receive a few trailing
+                            // progress lines before the process actually dies.
+                            // Ignore them, or the card flickers back to
+                            // "downloading" after cancel.
+                            if (current.state != JobState.DOWNLOADING) current
+                            else current.copy(
+                                progress = progress,
+                                etaSeconds = eta,
+                                status = line.trim().take(140),
+                            )
+                        }
+                    }
+                )
+                Engine.GALLERYDL -> {
+                    // gallery-dl reports finished files, not percentages, so the
+                    // bar stays indeterminate and the line carries the news.
+                    GalleryDl.download(appContext, job, workDir) { line ->
+                        patch(job.id) { current ->
+                            if (current.state != JobState.DOWNLOADING) current
+                            else current.copy(status = line.trim().take(140))
+                        }
+                    }
                 }
             }
 
@@ -341,11 +395,19 @@ object DownloadQueue {
             if (stateOf(job.id) != JobState.DOWNLOADING) return
 
             patch(job.id) { it.copy(state = JobState.SAVING, progress = 1f, status = "Saving…") }
-            val saved = MediaStoreSink.publish(appContext, file, job.quality.isAudio, prefs())
+            // Every file the engine produced goes to the gallery. The card
+            // names the first and counts the rest, since one card is all a
+            // carousel gets.
+            val published = files.map { MediaStoreSink.publish(appContext, it, job.quality.isAudio, prefs()) }
+            val saved = published.first()
             patch(job.id) {
                 it.copy(
                     state = JobState.DONE,
-                    savedAs = saved.name,
+                    savedAs = if (published.size > 1) {
+                        "${saved.name}  (+${published.size - 1} more)"
+                    } else {
+                        saved.name
+                    },
                     savedUri = saved.uri,
                     savedIn = saved.location,
                     status = "",
@@ -442,8 +504,13 @@ object DownloadQueue {
         val job = _jobs.value.firstOrNull { it.id == id } ?: return
         patch(id) { it.copy(state = JobState.CANCELLED, status = "Cancelled", progress = -1f) }
         // CHECKING kills the probe, DOWNLOADING kills the download. Both are a
-        // forked Python process registered under the same process id.
-        if (job.state == JobState.CHECKING || job.state == JobState.DOWNLOADING) Ytdlp.cancel(job)
+        // forked Python process registered under the same process id — but in
+        // two different registries, since the library only tracks processes it
+        // started itself. Ask both; whichever owns it does the killing.
+        if (job.state == JobState.CHECKING || job.state == JobState.DOWNLOADING) {
+            Ytdlp.cancel(job)
+            GalleryDl.cancel(job)
+        }
     }
 
     fun retry(id: String) {

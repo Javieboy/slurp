@@ -4,6 +4,15 @@ import app.slurp.core.Site
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 
+/**
+ * Which engine handles a job.
+ *
+ * yt-dlp covers video and audio. gallery-dl covers images — the posts yt-dlp
+ * refuses because there is no video in them — and is fetched at runtime rather
+ * than bundled, for the licence reason spelled out in `engine/GalleryDl.kt`.
+ */
+enum class Engine { YTDLP, GALLERYDL }
+
 enum class JobState {
     CHECKING, QUEUED, DOWNLOADING, SAVING, DONE, FAILED, CANCELLED;
 
@@ -22,6 +31,8 @@ data class Job(
     val title: String,
     val site: Site,
     val quality: Quality,
+    /** Which engine runs this job. Persisted, so a restore keeps using the right one. */
+    val engine: Engine = Engine.YTDLP,
     val state: JobState = JobState.QUEUED,
     /**
      * 0f..1f, or -1f when yt-dlp has not reported a percentage yet.

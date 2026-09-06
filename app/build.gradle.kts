@@ -42,8 +42,8 @@ android {
         applicationId = "app.slurp"
         minSdk = 29
         targetSdk = 36
-        versionCode = 11
-        versionName = "1.4.3"
+        versionCode = 12
+        versionName = "1.5.0"
 
         // The Python runtime is per-ABI. Anything not listed here is not
         // shipped, so the app simply will not run on that architecture.

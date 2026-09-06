@@ -46,6 +46,20 @@ Dependencies are deliberately few: Compose, kotlinx-serialization, and
 youtubedl-android. Keep it that way — the APK is already ~180 MB because of the
 bundled Python runtime, and every addition is on top of that.
 
+## Two engines
+
+yt-dlp handles video and audio. gallery-dl handles images — the posts yt-dlp
+refuses because there is no video in them — and the queue falls back to it when
+a probe fails with "no video"/"unsupported url". Both run on the *same* bundled
+Python: `PythonRuntime` rebuilds the paths and six environment variables that
+`YoutubeDL.init()` sets up, all of which are reachable from `Context`, so a
+second engine needed no fork of youtubedl-android.
+
+**gallery-dl is fetched at runtime and must never be bundled.** It is
+GPL-2.0-only, slurp is GPLv3, and those are incompatible — shipping both in one
+APK would be a violation. See the License section of `README.md` before touching
+`engine/GalleryDl.kt`.
+
 ## When a site stops working
 
 Try **Update engine** before touching any code. It fetches a newer yt-dlp at

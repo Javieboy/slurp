@@ -47,9 +47,15 @@ jobs:
       - name: Resolve the tag
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
+          # Accept "1.4.2" as well as "v1.4.2". Demanding the v cost a real
+          # 13-second round trip to a typo, and this form is typed on a phone
+          # keyboard where the leading v is exactly the character to lose.
           case "$TAG" in
-            v[0-9]*) ;;
-            *) echo "::error::Tag must look like v1.2.3 (got '$TAG')"; exit 1;;
+            [0-9]*) TAG="v$TAG" ;;
+          esac
+          case "$TAG" in
+            v[0-9]*.[0-9]*) ;;
+            *) echo "::error::Tag must look like v1.2.3 or 1.2.3 (got '$TAG')"; exit 1;;
           esac
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "releasing $TAG from $GITHUB_SHA"
